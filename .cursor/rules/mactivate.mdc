@@ -1,0 +1,24 @@
+---
+description: Mactivate engineering conventions
+alwaysApply: true
+---
+
+- Mactivate is a native macOS hardware-exploration project.
+- Treat Mactuation Engine as the dedicated experimental sensor layer.
+- Private frameworks, undocumented IOKit/HID interfaces, and privileged helpers are permitted for Mactuation research.
+- Isolate unsupported APIs behind small capability-detected adapters. Keep public app UI and action logic independent of them.
+- Build a sensor probe and labelled-data workflow before committing to gesture classifications.
+- Record hardware model, macOS version, required privileges, discovered HID usages, and compatibility results.
+- Use feature flags and graceful capability states; unsupported hardware must not crash the app.
+- Treat determinism, stability, reliability, privacy clarity, and polished UI/UX as acceptance requirements, not follow-up cleanup.
+- Replaying the same sensor capture with the same versioned configuration must produce identical events. Use explicit timing state machines, stable event IDs, exactly-once action dispatch, and fail closed on ambiguous input.
+- Keep sensor processing and action execution off the main thread. Test relaunch, sleep/wake, helper restart, sensor interruption, permission changes, and configuration reload without crashes, hangs, stale state, or synthetic/duplicate actions.
+- Prefer ambient-light sensing over camera input and accelerometer sensing over microphone input. Camera/microphone fallbacks require explicit opt-in, truthful persistent in-app status matching macOS privacy indicators, prompt release when disabled, and no raw-media retention without separate consent.
+- Require measurable qualification against labelled inputs and long false-positive runs before calling a classifier product-ready. Preserve per-hardware/path/condition results rather than hiding failures in aggregate metrics.
+- UI must expose clear capability, confidence, permission, loading, failure, and privacy states and support keyboard navigation, VoiceOver, contrast, reduced motion, and predictable focus.
+- Prefer small, cohesive files and self-explanatory code.
+- Keep comments minimal. Add comments only where undocumented hardware behavior, protocol layouts, platform workarounds, safety constraints, or non-obvious intent need an explanation that code cannot provide.
+- Do not add comments that merely restate what the code does.
+- These conventions are intentionally revisable. When evidence supports a better architecture, capability model, or workflow, update the relevant documentation and record the reasoning.
+- Do not treat current sensor, UI, distribution, or classification ideas as frozen requirements; investigate, challenge, and improve them with evidence.
+- Git / PR style: no AI traces, no Cursor signatures, no weird branch suffixes or flags. Keep PR titles and bodies short (1–2 lines). Use plain branch names.

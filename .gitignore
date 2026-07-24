@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────
+# macOS Finder / filesystem artifacts
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Icon?
+
+# ─────────────────────────────────────────────────────────────
+# Xcode user-specific data (per-developer, never shared)
+# NOTE: the *.xcodeproj / *.xcworkspace bundles themselves are
+# source-controlled — only the per-user data inside them is ignored.
+# ─────────────────────────────────────────────────────────────
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.pbxuser
+
+# Xcode build output
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ─────────────────────────────────────────────────────────────
+# Swift Package Manager build artifacts
+# NOTE: Package.resolved IS committed (it is a lockfile) — do not ignore it.
+# ─────────────────────────────────────────────────────────────
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/xcode/xcuserdata/
+.swiftpm/configuration/
+Packages/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# ─────────────────────────────────────────────────────────────
+# Local environment / configuration secrets
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+*.pem
+*.p12
+*.mobileprovision
+*.provisionprofile
+config.local.*
+
+# ─────────────────────────────────────────────────────────────
+# Generated distribution artifacts (not source)
+# Distribution is out of scope for now; these patterns keep future
+# release output from being committed by accident.
+# ─────────────────────────────────────────────────────────────
+dist/
+release/
+export/
+*.dmg
+*.pkg
+*.zip
+*.app.zip
+
+# ─────────────────────────────────────────────────────────────
+# Captured sensor data / probe output
+# Raw and labelled sensor captures may contain large binaries and
+# personal signals; keep them out of version control by default.
+# Commit small, sanitized samples deliberately under docs/ if needed.
+# ─────────────────────────────────────────────────────────────
+captures/
+*.rawimu
+probe-output/
+
+# ─────────────────────────────────────────────────────────────
+# Editor / tooling scratch
+# ─────────────────────────────────────────────────────────────
+*.swp
+*~
+.idea/
