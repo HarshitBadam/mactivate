@@ -34,7 +34,7 @@ As of now, **everything in this repository is source-backed prior art or hypothe
 
 ## Next step
 
-The immediate next task is **not** to write product code. It is to run the [Local Probe Plan](docs/local-probe-plan.md) on the physical target MacBook in Cursor Desktop: establish the exact hardware model and macOS version, discover the relevant IOKit services, determine which sensor paths and privileges are actually available, and capture the first labelled sensor samples. Those results are what will turn the hypotheses in this repository into validated (or invalidated) facts.
+The immediate next task is **not** to write product code. It is to run the [Local Probe Plan](docs/local-probe-plan.md) on the physical target MacBook: establish the exact hardware model and macOS version, discover the relevant IOKit services, determine which sensor paths and privileges are actually available, and capture the first labelled sensor samples. Those results are what will turn the hypotheses in this repository into validated (or invalidated) facts.
 
 ## License
 

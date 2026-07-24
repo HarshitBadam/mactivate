@@ -1,8 +1,8 @@
 # Local Probe Plan
 
-A step-by-step hardware investigation to run **later, on the physical target MacBook, in Cursor Desktop**. Its job is to convert the hypotheses and source-backed claims in this repository into **locally validated facts (or refutations)** about *this specific machine and macOS version*.
+A step-by-step hardware investigation to run **later, on the physical target MacBook**. Its job is to convert the hypotheses and source-backed claims in this repository into **locally validated facts (or refutations)** about *this specific machine and macOS version*.
 
-> **This plan was authored in a non-macOS cloud environment.** No step here has been executed and no result has been obtained. Do not record any result below as observed until it has actually run on the target MacBook. This document describes the probe work; it deliberately contains **no probe code** — a later local agent will implement the tooling.
+> No step here has been executed and no result has been obtained. Do not record any result below as observed until it has actually run on the target MacBook. This document describes the probe work; it deliberately contains **no probe code** — implementation follows local validation.
 
 ## Preconditions
 
