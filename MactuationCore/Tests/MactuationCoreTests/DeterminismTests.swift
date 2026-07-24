@@ -2,6 +2,25 @@ import XCTest
 @testable import MactuationCore
 
 final class DeterminismTests: XCTestCase {
+    private final class DeliveryState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var samples: [SensorSample] = []
+        private var deliveredOnMainThread = false
+
+        func append(_ sample: SensorSample) {
+            lock.lock()
+            samples.append(sample)
+            deliveredOnMainThread = deliveredOnMainThread || Thread.isMainThread
+            lock.unlock()
+        }
+
+        func snapshot() -> (samples: [SensorSample], deliveredOnMainThread: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (samples, deliveredOnMainThread)
+        }
+    }
+
     func testMockIsDeterministicPerSeed() {
         let config = MockSensorSource.Configuration(seed: 7, duration: 3,
                                                     taps: [(time: 1.0, amplitude: 0.02)])
@@ -62,5 +81,22 @@ final class DeterminismTests: XCTestCase {
         XCTAssertThrowsError(try source.start { _ in }) {
             XCTAssertEqual($0 as? SensorSourceError, .alreadyStarted)
         }
+    }
+
+    func testProcessingQueueDeliversInOrderOffMainThread() {
+        let queue = SensorProcessingQueue()
+        let samples = MockSensorSource(configuration: .init(seed: 4, duration: 0.02)).generate()
+        let state = DeliveryState()
+
+        for sample in samples {
+            queue.submit(sample) {
+                state.append($0)
+            }
+        }
+        queue.finish()
+
+        let result = state.snapshot()
+        XCTAssertEqual(result.samples, samples)
+        XCTAssertFalse(result.deliveredOnMainThread)
     }
 }

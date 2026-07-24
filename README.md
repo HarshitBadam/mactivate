@@ -31,6 +31,7 @@ As of now, **everything in this repository is source-backed prior art or hypothe
 - [Architecture Options](docs/architecture-options.md) — in-process vs. helper vs. daemon trade-offs and a preliminary recommendation.
 - [UX Exploration](docs/ux-exploration.md) — the large notch workspace, setup, calibration, mapping, and fallback behavior.
 - [Decision Log](docs/decision-log.md) — the few decisions actually made so far.
+- [Engineering Guidelines](docs/engineering-guidelines.md) — hardware, reliability, privacy, qualification, and interface requirements.
 
 ## Next step
 
