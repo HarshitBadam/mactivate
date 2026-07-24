@@ -27,8 +27,8 @@ Format: newest first.
 - **Sensor preference:** Prefer ambient-light sensing over camera input for hand-near detection and accelerometer sensing over microphone input for taps. Camera and microphone remain acceptable fallbacks because reliability is unvalidated, but should be avoided when possible due to privacy sensitivity and macOS's green/orange privacy indicators.
 - **Status:** Active. The sensor implementations remain hypotheses subject to the local probe; the product boundary is a deliberate choice.
 
-### 2026-07-21 — Documentation, rules, and conventions may evolve when evidence supports a change
-- **Decision:** The `docs/` content and `.cursor/rules/mactivate.mdc` are explicitly revisable. When local evidence (or better external evidence) supports a different architecture, capability model, sensor path, UI, or workflow, the relevant document is to be updated and the reasoning recorded here.
+### 2026-07-21 — Documentation, guidelines, and conventions may evolve when evidence supports a change
+- **Decision:** The `docs/` content and [Engineering Guidelines](engineering-guidelines.md) are explicitly revisable. When local evidence (or better external evidence) supports a different architecture, capability model, sensor path, UI, or workflow, the relevant document is to be updated and the reasoning recorded here.
 - **Rationale:** The project brief and engineering rules both state current sensor/UI/distribution/classification ideas must not be treated as frozen; treating this as a standing decision prevents doc-rot and keeps the research honest.
 - **Status:** Active.
 

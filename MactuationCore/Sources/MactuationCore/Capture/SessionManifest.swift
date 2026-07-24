@@ -4,20 +4,45 @@ import Foundation
 /// Local Probe Plan's reproducibility requirements.
 public struct SessionManifest: Codable, Equatable, Sendable {
     public struct Environment: Codable, Equatable, Sendable {
+        public struct HIDUsage: Codable, Equatable, Sendable {
+            public var usagePage: UInt32
+            public var usage: UInt32
+
+            public init(usagePage: UInt32, usage: UInt32) {
+                self.usagePage = usagePage
+                self.usage = usage
+            }
+        }
+
+        public enum Compatibility: String, Codable, Sendable {
+            case unknown
+            case supported
+            case unsupported
+            case inconclusive
+        }
+
         public var modelIdentifier: String
         public var chip: String
         public var osVersion: String
         public var osBuild: String
         public var notchPresent: Bool?
+        public var requiredPrivileges: [String]
+        public var discoveredHIDUsages: [HIDUsage]
+        public var compatibility: Compatibility
 
         public init(modelIdentifier: String = "unknown", chip: String = "unknown",
                     osVersion: String = "unknown", osBuild: String = "unknown",
-                    notchPresent: Bool? = nil) {
+                    notchPresent: Bool? = nil, requiredPrivileges: [String] = [],
+                    discoveredHIDUsages: [HIDUsage] = [],
+                    compatibility: Compatibility = .unknown) {
             self.modelIdentifier = modelIdentifier
             self.chip = chip
             self.osVersion = osVersion
             self.osBuild = osBuild
             self.notchPresent = notchPresent
+            self.requiredPrivileges = requiredPrivileges
+            self.discoveredHIDUsages = discoveredHIDUsages
+            self.compatibility = compatibility
         }
     }
 

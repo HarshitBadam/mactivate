@@ -15,7 +15,15 @@ final class CaptureRoundTripTests: XCTestCase {
 
     private func makeManifest() -> SessionManifest {
         SessionManifest(label: "test", startedAt: Date(timeIntervalSince1970: 1_700_000_000),
-                        toolVersion: "test-0")
+                        toolVersion: "test-0",
+                        environment: .init(
+                            modelIdentifier: "Mac15,3",
+                            chip: "M3 Pro",
+                            osVersion: "14.0",
+                            osBuild: "23A344",
+                            requiredPrivileges: ["root"],
+                            discoveredHIDUsages: [.init(usagePage: 0xFF00, usage: 3)],
+                            compatibility: .supported))
     }
 
     func testSamplesSurviveWriteAndRead() throws {
@@ -47,6 +55,10 @@ final class CaptureRoundTripTests: XCTestCase {
         let record = reader.manifest.sensors.first { $0.path == .spuAccelerometer }
         XCTAssertEqual(record?.effectiveRateHz, 100)
         XCTAssertEqual(record?.acquisitionParameters["ReportInterval"], "5428500")
+        XCTAssertEqual(reader.manifest.environment.requiredPrivileges, ["root"])
+        XCTAssertEqual(reader.manifest.environment.discoveredHIDUsages,
+                       [.init(usagePage: 0xFF00, usage: 3)])
+        XCTAssertEqual(reader.manifest.environment.compatibility, .supported)
     }
 
     func testExtremeDoublesRoundTrip() throws {
