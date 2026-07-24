@@ -1,0 +1,66 @@
+import XCTest
+@testable import MactuationCore
+
+final class DeterminismTests: XCTestCase {
+    func testMockIsDeterministicPerSeed() {
+        let config = MockSensorSource.Configuration(seed: 7, duration: 3,
+                                                    taps: [(time: 1.0, amplitude: 0.02)])
+        let a = StreamDigest.digest(of: MockSensorSource(configuration: config).generate())
+        let b = StreamDigest.digest(of: MockSensorSource(configuration: config).generate())
+        XCTAssertEqual(a, b)
+
+        var other = config
+        other.seed = 8
+        let c = StreamDigest.digest(of: MockSensorSource(configuration: other).generate())
+        XCTAssertNotEqual(a, c)
+    }
+
+    func testReplayDeliversIdenticalSequenceTwice() throws {
+        let samples = MockSensorSource(configuration: .init(seed: 3, duration: 2)).generate()
+
+        func replayDigest() throws -> String {
+            var digest = StreamDigest()
+            let source = ReplaySensorSource(samples: samples)
+            try source.start { digest.update($0) }
+            source.stop()
+            return digest.value
+        }
+
+        let first = try replayDigest()
+        let second = try replayDigest()
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first, StreamDigest.digest(of: samples))
+    }
+
+    func testWrittenCaptureReplaysToSameDigest() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mactuation-digest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let samples = MockSensorSource(configuration: .init(
+            seed: 11, duration: 2, taps: [(time: 0.4, amplitude: 0.05)],
+            covers: [(start: 1.2, end: 1.4)])).generate()
+        let originalDigest = StreamDigest.digest(of: samples)
+
+        let writer = try CaptureWriter(
+            directory: tempDir,
+            manifest: SessionManifest(label: "digest", startedAt: Date(), toolVersion: "test-0"))
+        for sample in samples {
+            try writer.append(sample)
+        }
+        try writer.finalize()
+
+        var replayed = StreamDigest()
+        let source = try ReplaySensorSource(reader: CaptureReader(directory: tempDir))
+        try source.start { replayed.update($0) }
+        XCTAssertEqual(replayed.value, originalDigest)
+    }
+
+    func testStartTwiceIsRejected() throws {
+        let source = ReplaySensorSource(samples: [])
+        try source.start { _ in }
+        XCTAssertThrowsError(try source.start { _ in }) {
+            XCTAssertEqual($0 as? SensorSourceError, .alreadyStarted)
+        }
+    }
+}
