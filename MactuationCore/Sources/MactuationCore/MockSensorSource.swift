@@ -88,9 +88,10 @@ public final class MockSensorSource: SensorSource {
                                 sample: ALSSample(timestamp: t, lux: lux)))
         }
 
-        return samples.sorted {
-            ($0.timestamp, $0.path.rawValue) < ($1.timestamp, $1.path.rawValue)
-        }
+        return samples.enumerated().sorted {
+            ($0.element.timestamp, $0.element.path.rawValue, $0.offset) <
+                ($1.element.timestamp, $1.element.path.rawValue, $1.offset)
+        }.map(\.element)
     }
 }
 

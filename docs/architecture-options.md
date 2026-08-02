@@ -67,9 +67,16 @@ Rationale and assumptions:
 - For a **usable product**, Option 2's small privileged helper is the best privilege/crash-isolation trade-off, and the sensor↔UI privilege split makes a single root UI (pure Option 1) hard to justify.
 - Option 3 is the natural evolution **if** engine tooling (capture/replay/CLI) becomes central, which the probe plan suggests it will — so the engine's interface should be designed as if a process boundary could exist, even while it starts in-process.
 
-**Assumptions that must hold for this lean (all currently unvalidated):**
-1. The SPU IMU requires root on the target machine (Confirmed-external, unverified locally).
-2. ~100 Hz event delivery over XPC or shared memory meets tap/gesture latency needs (Reported via `sensord`; unmeasured for our UI).
-3. Lid/ALS may *not* need root, meaning some capabilities could work unprivileged even if the IMU cannot — which would change how much lives in the privileged component.
+**Assumptions that must hold for this lean (status updated 2026-07-24):**
+1. ~~The SPU IMU requires root on the target machine~~ — **REFUTED locally 2026-07-24**: HID open, wake writes, and ~100 Hz delivery all succeeded unprivileged (euid 501) in an interactive user session on Mac14,2 / macOS 26.2, reproduced twice. See [Probe Results](probe-results/2026-07-24-mac14-2-discovery.md).
+2. ~100 Hz event delivery over XPC or shared memory meets tap/gesture latency needs (Reported via `sensord`; unmeasured for our UI). Now possibly moot: if no privilege boundary is needed, no IPC hop is needed either.
+3. Lid/ALS may *not* need root — **partially validated**: the ALS `CurrentLux` registry poll works unprivileged.
 
-If Step 4 of the probe shows the IMU is readable without root, or that XPC cannot sustain the needed rate, this recommendation should be revisited and the change logged in the [Decision Log](decision-log.md).
+## Update 2026-07-24 — the privilege split may not exist
+
+Per the revisit rule below, the refutation of assumption 1 is logged in the [Decision Log](decision-log.md). Every preferred sensor path (SPU IMU via HID, ALS via registry poll) currently works **unprivileged in an interactive user session**, so the root-vs-TCC privilege split that motivated Options 2/3 may not exist on the target machine. If that holds, **Option 1 (in-process, unprivileged — no `sudo` needed) becomes viable for the product**, with crash-isolation rather than privilege as the remaining argument for a separate sensor process. Before finalizing:
+- Verify HID access from a **launchd daemon / non-interactive context** (the DTS guidance says "interactive-user or root" — a menu-bar app in the user session is interactive, so this likely holds for Mactivate's shape, but measure it).
+- Verify access survives sleep/wake, fast user switching, and macOS updates.
+- Keep the engine behind its transport-agnostic boundary regardless, so a helper can be reintroduced if a future macOS restores the restriction.
+
+If Step 4 of the probe shows the IMU is readable without root, or that XPC cannot sustain the needed rate, this recommendation should be revisited and the change logged in the [Decision Log](decision-log.md). *(Triggered 2026-07-24 — see update above.)*
