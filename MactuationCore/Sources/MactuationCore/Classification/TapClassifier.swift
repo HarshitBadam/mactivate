@@ -1,0 +1,231 @@
+import Foundation
+
+/// Features of one detected onset event, as the accept gate sees them.
+/// Impulses are stored in mg·s (the unit the documented cuts are stated in).
+public struct TapEventFeatures: Equatable, Sendable {
+    public var time: SensorTimestamp
+    public var peakG: Double
+    public var decayMs: Double
+    /// Signed Z ±25 ms impulse (mg·s); positive is the palm-tap signature.
+    public var zImpulseMgS: Double
+    /// Absolute lateral ±25 ms impulse |x|+|y| (mg·s); the bump discriminator.
+    public var lateralImpulseMgS: Double
+}
+
+/// How an event group cleared (or failed) the tiered accept gate.
+public enum TapVerdict: Equatable, Sendable {
+    /// Positive first-member Z-impulse and lateral impulse under the veto.
+    case acceptedComfort
+    /// First member cleared the named side's firm amplitude tier and its
+    /// scaled bump veto. The side names the calibration entry that matched,
+    /// not where the tap physically landed (unknowable — H-TAP-REGION refuted).
+    case acceptedFirm(PalmSide)
+    case rejected
+
+    public var isAccepted: Bool {
+        if case .rejected = self { return false }
+        return true
+    }
+}
+
+/// One grouped tap candidate: 1–n onset events within the grouping window.
+/// `members.count` is the tap count (single/double/triple) when accepted.
+public struct TapGroup: Equatable, Sendable {
+    public var members: [TapEventFeatures]
+    public var verdict: TapVerdict
+
+    /// Stable identifier: the calibration version plus the first member's
+    /// exact peak timestamp. Identical input and calibration reproduce it
+    /// exactly; the action layer deduplicates dispatch on it.
+    public func eventID(calibrationVersion: String) -> String {
+        "\(calibrationVersion)/\(CaptureFormat.encode(members[0].time))"
+    }
+}
+
+/// Deterministic, offline H-TAP-PALM classifier.
+///
+/// Reproduces `scripts/analyze_imu.py`'s pipeline operation-for-operation —
+/// centered moving-average detrend, threshold + refractory event detection,
+/// ±25 ms signed impulses, gap grouping — followed by the tiered accept rule
+/// validated in docs/probe-results/2026-07-24-mac14-2-discovery.md:
+///
+///   accept a group iff it has ≤ maxGroupMembers members and its FIRST member
+///   passes its amplitude-selected tier:
+///     comfort (peak below every firm cut):
+///              Z-impulse > 0 AND lateral impulse < comfortLateralVetoMgS
+///     firm (peak at/above a side cut):
+///              lateral/peak ≤ ratio max AND decay ≤ max
+///
+/// Later group members are never gated — ring-down from a prior tap flips
+/// their impulse sign ~45% of the time (measured), so only the first member
+/// carries signal.
+///
+/// Batch by design: the validated detrend is centered (needs lookahead), and
+/// classification runs against recorded or buffered streams. Determinism
+/// contract: identical samples + identical calibration ⇒ identical `TapGroup`
+/// array and byte-identical `digest(of:)`.
+public struct TapClassifier: Sendable {
+    public let calibration: TapCalibration
+
+    public init(calibration: TapCalibration) {
+        self.calibration = calibration
+    }
+
+    public func classify(samples: [SensorSample], path: SensorPath = .spuAccelerometer) -> [TapGroup] {
+        let imu = samples.compactMap { sample -> IMUSample? in
+            guard case .imu(let samplePath, let imuSample) = sample, samplePath == path else { return nil }
+            return imuSample
+        }
+        return classify(imuSamples: imu)
+    }
+
+    public func classify(imuSamples rows: [IMUSample]) -> [TapGroup] {
+        let n = rows.count
+        guard n >= 2 else { return [] }
+        let times = rows.map(\.timestamp)
+        let duration = times[n - 1] - times[0]
+        guard duration > 0 else { return [] }
+        let rate = Double(n - 1) / duration
+
+        // Centered moving-average high-pass, mirroring analyze_imu.py:
+        // per-axis prefix sums, window [i-half, i+half], residual magnitude
+        // accumulated in x, y, z order so float rounding matches.
+        let half = max(1, Int(calibration.detrendWindowS * rate / 2))
+        var residualSquared = [Double](repeating: 0, count: n)
+        var signedResiduals: [[Double]] = []
+        for values in [rows.map(\.x), rows.map(\.y), rows.map(\.z)] {
+            var prefix = [Double](repeating: 0, count: n + 1)
+            for i in 0..<n {
+                prefix[i + 1] = prefix[i] + values[i]
+            }
+            var signed = [Double](repeating: 0, count: n)
+            for i in 0..<n {
+                let lo = max(0, i - half)
+                let hi = min(n, i + half + 1)
+                let mean = (prefix[hi] - prefix[lo]) / Double(hi - lo)
+                signed[i] = values[i] - mean
+                residualSquared[i] += signed[i] * signed[i]
+            }
+            signedResiduals.append(signed)
+        }
+        let magnitude = residualSquared.map { $0.squareRoot() }
+
+        let events = detectEvents(times: times, magnitude: magnitude, rate: rate,
+                                  signedResiduals: signedResiduals)
+        return groupAndJudge(events: events)
+    }
+
+    private func detectEvents(times: [SensorTimestamp], magnitude: [Double], rate: Double,
+                              signedResiduals: [[Double]]) -> [TapEventFeatures] {
+        let n = times.count
+        let threshold = calibration.eventThresholdG
+        let refractory = max(1, Int(calibration.refractoryS * rate))
+        let impulseHalf = max(1, Int(calibration.impulseHalfWindowS * rate))
+
+        var events: [TapEventFeatures] = []
+        var i = 0
+        while i < n {
+            guard magnitude[i] >= threshold else {
+                i += 1
+                continue
+            }
+            let end = min(n, i + refractory)
+            // First index of the maximum, matching Python max()'s tie behavior.
+            var peakIdx = i
+            for j in i..<end where magnitude[j] > magnitude[peakIdx] {
+                peakIdx = j
+            }
+            var tail = peakIdx
+            while tail < n - 1 && magnitude[tail + 1] > threshold / 2 {
+                tail += 1
+            }
+            let decayMs = (times[tail] - times[peakIdx]) * 1000
+
+            let lo = max(0, peakIdx - impulseHalf)
+            let hi = min(n, peakIdx + impulseHalf + 1)
+            var impulses = [Double](repeating: 0, count: 3)
+            for axis in 0..<3 {
+                var sum = 0.0
+                for j in lo..<hi {
+                    sum += signedResiduals[axis][j]
+                }
+                impulses[axis] = sum / rate
+            }
+            events.append(TapEventFeatures(
+                time: times[peakIdx],
+                peakG: magnitude[peakIdx],
+                decayMs: decayMs,
+                zImpulseMgS: impulses[2] * 1000,
+                lateralImpulseMgS: (abs(impulses[0]) + abs(impulses[1])) * 1000))
+            i = max(peakIdx + refractory, tail + 1)
+        }
+        return events
+    }
+
+    private func groupAndJudge(events: [TapEventFeatures]) -> [TapGroup] {
+        var groups: [[TapEventFeatures]] = []
+        for event in events {
+            if let last = groups.last?.last, event.time - last.time <= calibration.groupGapS {
+                groups[groups.count - 1].append(event)
+            } else {
+                groups.append([event])
+            }
+        }
+        return groups.map { TapGroup(members: $0, verdict: verdict(for: $0)) }
+    }
+
+    private func verdict(for members: [TapEventFeatures]) -> TapVerdict {
+        guard members.count <= calibration.maxGroupMembers, let first = members.first else {
+            return .rejected
+        }
+        // Amplitude selects the tier. A firm candidate must pass the scaled
+        // firm veto; it cannot fall back to the looser comfort gate merely
+        // because its Z impulse is positive.
+        for side in calibration.firmTiers.keys.sorted() {
+            let tier = calibration.firmTiers[side]!
+            if first.peakG >= tier.amplitudeCutG {
+                if first.lateralImpulseMgS / first.peakG <= tier.lateralToPeakMaxMgSPerG
+                    && first.decayMs <= tier.decayMaxMs {
+                    return .acceptedFirm(side)
+                }
+                return .rejected
+            }
+        }
+        if first.zImpulseMgS > 0 && first.lateralImpulseMgS < calibration.comfortLateralVetoMgS {
+            return .acceptedComfort
+        }
+        return .rejected
+    }
+}
+
+extension TapClassifier {
+    /// Canonical, locale-independent line encoding of one classified group —
+    /// the byte-identical replay contract is defined over these lines.
+    public static func canonicalLine(for group: TapGroup) -> String {
+        let verdict: String
+        switch group.verdict {
+        case .acceptedComfort: verdict = "accept:comfort"
+        case .acceptedFirm(let side): verdict = "accept:firm:\(side.rawValue)"
+        case .rejected: verdict = "reject"
+        }
+        let members = group.members.map { member in
+            ["t=" + CaptureFormat.encode(member.time),
+             "peak=" + CaptureFormat.encode(member.peakG),
+             "z25=" + CaptureFormat.encode(member.zImpulseMgS),
+             "lat25=" + CaptureFormat.encode(member.lateralImpulseMgS),
+             "decay=" + CaptureFormat.encode(member.decayMs)].joined(separator: ",")
+        }.joined(separator: ";")
+        return "\(verdict)|n=\(group.members.count)|\(members)"
+    }
+
+    /// Order-sensitive digest of a classification run, including the
+    /// calibration version so a config change can never alias an old digest.
+    public func digest(of groups: [TapGroup]) -> String {
+        var digest = StreamDigest()
+        digest.update(string: calibration.version)
+        for group in groups {
+            digest.update(string: Self.canonicalLine(for: group))
+        }
+        return digest.value
+    }
+}

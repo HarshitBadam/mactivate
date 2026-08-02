@@ -28,7 +28,7 @@ public final class CaptureWriter {
     public func append(_ sample: SensorSample) throws {
         precondition(!finished, "capture already finalized")
         let handle = try stream(for: sample.path)
-        handle.write(Data((CaptureFormat.csvLine(for: sample) + "\n").utf8))
+        try handle.write(contentsOf: Data((CaptureFormat.csvLine(for: sample) + "\n").utf8))
     }
 
     public func addLabel(_ span: LabelSpan) {
@@ -59,6 +59,12 @@ public final class CaptureWriter {
             try handle.close()
         }
         streams.removeAll()
+        for record in manifest.sensors {
+            let url = directory.appendingPathComponent(record.file)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+        }
 
         let labelLines = [CaptureFormat.labelsHeader] + labels.map(CaptureFormat.csvLine(for:))
         try Data((labelLines.joined(separator: "\n") + "\n").utf8)

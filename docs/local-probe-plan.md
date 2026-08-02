@@ -66,6 +66,7 @@ For ALS: determine which path returns values, its update cadence, and whether lo
 
 For each usable interface, determine empirically:
 - Does read succeed **without** `sudo`? (Prior art: SPU IMU needs root; DisplayServices lux reportedly does not.)
+- Does the public **CoreMotion** API report accelerometer availability (`CMMotionManager().isAccelerometerAvailable`)? Expected no on macOS per all prior art — but this is exactly the kind of "assumed unavailable" claim this plan exists to verify. If it ever works unprivileged, it is a public-API path that changes the architecture decision.
 - Which TCC prompts appear if an optional fallback is tested (Microphone or Camera; none expected for IOKit HID)?
 - Does access survive across app relaunch / reboot, or must privilege be re-granted?
 

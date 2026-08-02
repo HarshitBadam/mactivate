@@ -1,0 +1,534 @@
+import Darwin
+import Foundation
+import MactuationCore
+
+enum ProbeError: Error, CustomStringConvertible {
+    case usage(String)
+    case hardware(String)
+    case capture(String)
+
+    var description: String {
+        switch self {
+        case .usage(let message), .hardware(let message), .capture(let message):
+            return message
+        }
+    }
+}
+
+private struct Arguments {
+    let values: [String]
+
+    func has(_ flag: String) -> Bool {
+        values.contains(flag)
+    }
+
+    func value(after flag: String) throws -> String? {
+        guard let index = values.firstIndex(of: flag) else { return nil }
+        guard values.indices.contains(index + 1), !values[index + 1].hasPrefix("--") else {
+            throw ProbeError.usage("\(flag) requires a value")
+        }
+        return values[index + 1]
+    }
+
+    func double(after flag: String, default defaultValue: Double) throws -> Double {
+        guard let raw = try value(after: flag) else { return defaultValue }
+        guard let value = Double(raw), value.isFinite, value > 0 else {
+            throw ProbeError.usage("\(flag) must be a positive number")
+        }
+        return value
+    }
+}
+
+private final class ALSRunState {
+    var samples: [ALSSample] = []
+    var changeTimes: [Double] = []
+    var previousLux: Double?
+    var writeError: Error?
+}
+
+private final class IMUCaptureController {
+    let source: SPUIMUSource
+    let label: String
+    let markerEnabled: Bool
+    let requestedDuration: TimeInterval
+    let startedAt = Date()
+
+    private(set) var startUptime = ProcessInfo.processInfo.systemUptime
+    private(set) var writer: CaptureWriter?
+    private(set) var captureError: Error?
+    private var markerRepetition = 0
+    private var finalized = false
+    private var discarded = false
+
+    init(source: SPUIMUSource, label: String, markerEnabled: Bool, duration: TimeInterval) {
+        self.source = source
+        self.label = label
+        self.markerEnabled = markerEnabled
+        requestedDuration = duration
+    }
+
+    func start() throws {
+        startUptime = ProcessInfo.processInfo.systemUptime
+        try source.start { [weak self] sample in
+            guard let self, self.captureError == nil else { return }
+            do {
+                try self.writer?.append(sample)
+            } catch {
+                self.captureError = error
+            }
+        }
+
+        do {
+            let environment = collectCaptureEnvironment(
+                requiredPrivileges: geteuid() == 0 ? ["root"] : []
+            )
+            let manifest = SessionManifest(
+                label: label,
+                startedAt: startedAt,
+                toolVersion: toolVersion,
+                environment: environment,
+                sensors: source.paths.map {
+                    SessionManifest.SensorRecord(
+                        path: $0,
+                        file: CaptureFormat.streamFileName(for: $0)
+                    )
+                }
+            )
+            writer = try CaptureWriter(
+                directory: CaptureWriter.conventionalDirectory(
+                    under: capturesRoot, label: label, startedAt: startedAt
+                ),
+                manifest: manifest
+            )
+        } catch {
+            source.stop()
+            throw error
+        }
+    }
+
+    func addMarker() {
+        guard markerEnabled, let writer else { return }
+        markerRepetition += 1
+        let now = max(0, ProcessInfo.processInfo.systemUptime - startUptime)
+        writer.addLabel(LabelSpan(
+            start: now,
+            end: now + 0.5,
+            label: label,
+            repetition: markerRepetition
+        ))
+        print(String(format: "Marker %d at %.6f s", markerRepetition, now))
+    }
+
+    func finish() throws {
+        guard !finalized, !discarded else { return }
+        finalized = true
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - startUptime)
+
+        source.stop()
+        guard let writer else { return }
+        if !markerEnabled {
+            writer.addLabel(LabelSpan(
+                start: 0,
+                end: min(requestedDuration, elapsed),
+                label: label,
+                repetition: 1
+            ))
+        }
+
+        let wakeProperties = source.wakePropertiesSet.joined(separator: ",")
+        for path in source.paths {
+            var parameters = [
+                "wake_required": String(source.wakeRequired),
+                "wake_properties_set": wakeProperties,
+                "restoration": "saved ReportInterval; absent state properties restored to 0",
+                "decode_offsets": "6,10,14",
+                "decode_scale": "65536"
+            ]
+            if let interval = source.reportIntervalUsed {
+                parameters["ReportInterval"] = String(interval)
+            }
+            if let firstLength = source.firstReportLength(for: path) {
+                parameters["first_report_length"] = String(firstLength)
+            }
+            writer.recordSensorMetadata(
+                path: path,
+                effectiveRateHz: source.effectiveRate(for: path, elapsed: elapsed),
+                acquisitionParameters: parameters,
+                anomalies: source.anomalies(for: path) +
+                    (source.malformedReport.map { [$0] } ?? [])
+            )
+        }
+        try writer.finalize()
+        print("Capture directory: \(writer.directory.path)")
+    }
+
+    func discard() {
+        guard !finalized, !discarded else { return }
+        discarded = true
+        source.stop()
+        if let directory = writer?.directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        writer = nil
+    }
+}
+
+let toolVersion = "probe-0.1"
+
+private let repositoryRoot: URL = {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}()
+
+let capturesRoot = repositoryRoot.appendingPathComponent("captures", isDirectory: true)
+
+private func collectCaptureEnvironment(requiredPrivileges: [String] = []) -> SessionManifest.Environment {
+    var seen: Set<UInt64> = []
+    let usages = (try? SPURegistry.discover())?.compactMap {
+        service -> SessionManifest.Environment.HIDUsage? in
+        guard let page = service.usagePage, let usage = service.usage else { return nil }
+        let key = (UInt64(page) << 32) | UInt64(usage)
+        guard seen.insert(key).inserted else { return nil }
+        return SessionManifest.Environment.HIDUsage(usagePage: page, usage: usage)
+    } ?? []
+    return EnvironmentProbe.collect(discoveredUsages: usages, requiredPrivileges: requiredPrivileges)
+}
+
+private func jsonString<T: Encodable>(_ value: T) throws -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
+    return String(decoding: try encoder.encode(value), as: UTF8.self)
+}
+
+private func capabilityDescription(_ state: CapabilityState) -> String {
+    switch state {
+    case .unknown:
+        return "unknown"
+    case .available(let detail):
+        return "available — \(detail)"
+    case .unavailable(let reason):
+        return "unavailable — \(reason)"
+    case .needsPrivilege(let privilege):
+        return "needs privilege — \(privilege)"
+    case .needsOptIn:
+        return "needs explicit opt-in"
+    }
+}
+
+private func runIdentify(_ arguments: Arguments) throws {
+    let environment = EnvironmentProbe.collect()
+    if arguments.has("--json") {
+        print(try jsonString(environment))
+    } else {
+        print(EnvironmentProbe.humanDescription(environment))
+    }
+}
+
+private func makeCapabilityReport(services: [SPURegistryService],
+                                  displayServices: DisplayServicesStatus) -> CapabilityReport {
+    let ambient = services.first { $0.usagePage == 0xFF00 && $0.usage == 4 }
+    let currentLux = ambient?.number("CurrentLux")?.doubleValue
+
+    var states: [SensorPath: CapabilityState] = [:]
+    states[.spuAccelerometer] = HIDOpenProbe.probe(services: services, usagePage: 0xFF00, usage: 3)
+    states[.spuGyroscope] = HIDOpenProbe.probe(services: services, usagePage: 0xFF00, usage: 9)
+    if let currentLux {
+        states[.spuAmbientLight] = .available(
+            detail: "unprivileged AppleSPUVD6286 CurrentLux registry poll succeeded (lux=\(currentLux))"
+        )
+    } else if ambient != nil {
+        states[.spuAmbientLight] = .unavailable(
+            reason: "SPU ALS usage 0xFF00/4 present, but CurrentLux was unreadable"
+        )
+    } else {
+        states[.spuAmbientLight] = .unavailable(reason: "Apple SPU HID usage 0xFF00/4 absent")
+    }
+    states[.displayServicesAmbientLight] = displayServices.frameworkPresent
+        ? .unknown
+        : .unavailable(reason: "DisplayServices.framework absent")
+    states[.microphone] = .needsOptIn
+    states[.camera] = .needsOptIn
+    return CapabilityReport(states: states)
+}
+
+private func runDiscover(_ arguments: Arguments) throws {
+    let services = try SPURegistry.discover()
+    let displayServices = DisplayServicesProbe.inspect()
+    let report = makeCapabilityReport(services: services, displayServices: displayServices)
+    if arguments.has("--json") {
+        print(try jsonString(report))
+        return
+    }
+
+    if services.isEmpty {
+        print("No AppleSPUHIDDriver or AppleSPUHIDDevice services found.")
+    } else {
+        print("IOKit SPU services (\(services.count)):")
+        for service in services {
+            print(service.humanDescription())
+        }
+    }
+
+    let coreMotion = CoreMotionProbe.accelerometerAvailable()
+    print("CoreMotion accelerometer available: \(coreMotion.map(String.init) ?? "unknown (CMMotionManager absent)")")
+    print("DisplayServices framework present: \(displayServices.frameworkPresent)")
+    print("DisplayServices framework loadable: \(displayServices.frameworkLoadable)")
+    print("DisplayServices AggregatedLux: unknown — \(displayServices.detail)")
+    print("Capabilities:")
+    for path in SensorPath.allCases {
+        print("  \(path.rawValue): \(capabilityDescription(report.state(of: path)))")
+    }
+}
+
+private func median(_ values: [Double]) -> Double? {
+    guard !values.isEmpty else { return nil }
+    let sorted = values.sorted()
+    let middle = sorted.count / 2
+    if sorted.count.isMultiple(of: 2) {
+        return (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    return sorted[middle]
+}
+
+private func runALSWatch(_ arguments: Arguments) throws {
+    let duration = try arguments.double(after: "--duration", default: 30)
+    let pollHz = try arguments.double(after: "--poll-hz", default: 20)
+    let capture = arguments.has("--capture")
+    let label = try arguments.value(after: "--label")
+    if capture && label == nil {
+        throw ProbeError.usage("--capture requires --label <label>")
+    }
+    var reportInterval: Int?
+    if let raw = try arguments.value(after: "--report-interval") {
+        guard let parsed = Int(raw), parsed > 0 else {
+            throw ProbeError.usage("--report-interval must be a positive integer (microseconds)")
+        }
+        reportInterval = parsed
+    }
+
+    let source = try RegistryALSSource(pollHz: pollHz, reportIntervalOverride: reportInterval)
+    var acquisitionParameters = [
+        "method": "registry_poll",
+        "poll_hz": String(pollHz)
+    ]
+    if let reportInterval {
+        acquisitionParameters["report_interval_override_us"] = String(reportInterval)
+    }
+    let state = ALSRunState()
+    let startedAt = Date()
+    var writer: CaptureWriter?
+    if capture {
+        let captureLabel = label!
+        let manifest = SessionManifest(
+            label: captureLabel,
+            startedAt: startedAt,
+            toolVersion: toolVersion,
+            environment: collectCaptureEnvironment(),
+            sensors: [
+                SessionManifest.SensorRecord(
+                    path: .spuAmbientLight,
+                    file: CaptureFormat.streamFileName(for: .spuAmbientLight),
+                    acquisitionParameters: acquisitionParameters
+                )
+            ]
+        )
+        writer = try CaptureWriter(
+            directory: CaptureWriter.conventionalDirectory(
+                under: capturesRoot, label: captureLabel, startedAt: startedAt
+            ),
+            manifest: manifest
+        )
+    }
+
+    try source.start { sample in
+        guard case .als(_, let als) = sample else { return }
+        state.samples.append(als)
+        if state.previousLux == nil || state.previousLux != als.lux {
+            print(String(format: "%.6f s  lux=%.6f", als.timestamp, als.lux))
+            if state.previousLux != nil { state.changeTimes.append(als.timestamp) }
+            state.previousLux = als.lux
+        }
+        if let writer {
+            do {
+                try writer.append(sample)
+            } catch {
+                state.writeError = error
+            }
+        }
+    }
+
+    Thread.sleep(forTimeInterval: duration)
+    source.stop()
+    if let error = state.writeError { throw error }
+
+    let values = state.samples.map(\.lux)
+    let mean = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
+    let cadenceIntervals = zip(state.changeTimes.dropFirst(), state.changeTimes)
+        .map { $0 - $1 }
+    let cadence = median(cadenceIntervals)
+    print("Summary:")
+    print("  sample count: \(state.samples.count)")
+    print("  distinct-value change count: \(state.changeTimes.count)")
+    if let minimum = values.min(), let maximum = values.max() {
+        print(String(format: "  lux min/max/mean: %.6f / %.6f / %.6f", minimum, maximum, mean))
+    } else {
+        print("  lux min/max/mean: n/a")
+    }
+    if let cadence, let fastest = cadenceIntervals.min() {
+        print(String(format: "  median seconds between changes: %.6f", cadence))
+        print(String(format: "  min seconds between changes: %.6f", fastest))
+    } else {
+        print("  median seconds between changes: n/a (fewer than two changes)")
+    }
+
+    if let writer {
+        writer.addLabel(LabelSpan(start: 0, end: duration, label: label!, repetition: 1))
+        writer.recordSensorMetadata(
+            path: .spuAmbientLight,
+            effectiveRateHz: duration > 0 ? Double(state.samples.count) / duration : nil,
+            acquisitionParameters: acquisitionParameters
+        )
+        try writer.finalize()
+        print("Capture directory: \(writer.directory.path)")
+    }
+}
+
+private func runLoop(until deadline: TimeInterval,
+                     stopWhen: () -> Bool = { false }) {
+    while ProcessInfo.processInfo.systemUptime < deadline && !stopWhen() {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+    }
+}
+
+private func runIMUCapture(_ arguments: Arguments) throws {
+    let duration = try arguments.double(after: "--duration", default: 30)
+    guard let label = try arguments.value(after: "--label") else {
+        throw ProbeError.usage("imu-capture requires --label <label>")
+    }
+    let rateHz = try arguments.double(after: "--rate-hz", default: 100)
+    guard rateHz > 0, rateHz <= 10_000 else {
+        throw ProbeError.usage("--rate-hz must be between 1 and 10000")
+    }
+    let reportInterval = Int((1_000_000 / rateHz).rounded())
+
+    let source = try SPUIMUSource(includeGyroscope: arguments.has("--gyro"))
+    let controller = IMUCaptureController(
+        source: source,
+        label: label,
+        markerEnabled: arguments.has("--marker"),
+        duration: duration
+    )
+
+    do {
+        try controller.start()
+    } catch let error as SPUIMUError where error.isPrivilegeFailure {
+        throw ProbeError.hardware(
+            "\(error)\nRerun with: sudo .build/debug/mactuation-probe imu-capture ..."
+        )
+    }
+    defer { try? controller.finish() }
+
+    signal(SIGINT, SIG_IGN)
+    let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    signalSource.setEventHandler {
+        do {
+            try controller.finish()
+        } catch {
+            FileHandle.standardError.write(Data("capture finalization failed: \(error)\n".utf8))
+        }
+        exit(130)
+    }
+    signalSource.resume()
+
+    var markerSource: DispatchSourceRead?
+    if arguments.has("--marker") {
+        print("Press Enter to add a 0.5 s marker.")
+        let source = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: .main)
+        source.setEventHandler {
+            var byte: UInt8 = 0
+            if read(STDIN_FILENO, &byte, 1) == 1, byte == 10 || byte == 13 {
+                controller.addMarker()
+            }
+        }
+        source.resume()
+        markerSource = source
+    }
+
+    let deadline = controller.startUptime + duration
+    let initialDeadline = min(deadline, controller.startUptime + 1.0)
+    runLoop(until: initialDeadline) {
+        source.totalReportCount > 0 || source.malformedReport != nil
+    }
+    if source.totalReportCount == 0 && source.malformedReport == nil &&
+        ProcessInfo.processInfo.systemUptime < deadline {
+        print("No reports arrived without wake properties; applying wake sequence.")
+        do {
+            try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
+        } catch let error as SPUIMUError where error.isPrivilegeFailure {
+            controller.discard()
+            throw ProbeError.hardware(
+                "\(error)\nRerun with: sudo .build/debug/mactuation-probe imu-capture ..."
+            )
+        }
+    }
+    runLoop(until: deadline) {
+        source.malformedReport != nil || controller.captureError != nil
+    }
+
+    markerSource?.cancel()
+    signalSource.cancel()
+    try controller.finish()
+
+    if let malformed = source.malformedReport {
+        throw ProbeError.capture("capture aborted: \(malformed)")
+    }
+    if let error = controller.captureError { throw error }
+    for path in source.paths {
+        let elapsed = max(0.001, ProcessInfo.processInfo.systemUptime - controller.startUptime)
+        print(String(
+            format: "%@ reports: %d (effective %.3f Hz)",
+            path.rawValue,
+            source.reportCount(for: path),
+            source.effectiveRate(for: path, elapsed: elapsed)
+        ))
+    }
+}
+
+private func usage() -> String {
+    """
+    Usage:
+      mactuation-probe identify [--json]
+      mactuation-probe discover [--json]
+      mactuation-probe als-watch [--duration seconds] [--poll-hz hz] [--report-interval us] [--capture --label label]
+      mactuation-probe imu-capture [--duration seconds] --label label [--rate-hz hz] [--gyro] [--marker]
+    """
+}
+
+do {
+    let raw = Array(CommandLine.arguments.dropFirst())
+    guard let command = raw.first else {
+        throw ProbeError.usage(usage())
+    }
+    let arguments = Arguments(values: Array(raw.dropFirst()))
+    switch command {
+    case "identify":
+        try runIdentify(arguments)
+    case "discover":
+        try runDiscover(arguments)
+    case "als-watch":
+        try runALSWatch(arguments)
+    case "imu-capture":
+        try runIMUCapture(arguments)
+    case "help", "--help", "-h":
+        print(usage())
+    default:
+        throw ProbeError.usage("unknown subcommand: \(command)\n\(usage())")
+    }
+} catch {
+    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
+    exit(1)
+}

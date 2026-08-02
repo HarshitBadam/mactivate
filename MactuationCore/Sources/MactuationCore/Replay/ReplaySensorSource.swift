@@ -18,9 +18,10 @@ public final class ReplaySensorSource: SensorSource {
     }
 
     public init(samples: [SensorSample]) {
-        self.samples = samples.sorted {
-            ($0.timestamp, $0.path.rawValue) < ($1.timestamp, $1.path.rawValue)
-        }
+        self.samples = samples.enumerated().sorted {
+            ($0.element.timestamp, $0.element.path.rawValue, $0.offset) <
+                ($1.element.timestamp, $1.element.path.rawValue, $1.offset)
+        }.map(\.element)
         self.paths = Array(Set(samples.map(\.path))).sorted { $0.rawValue < $1.rawValue }
     }
 

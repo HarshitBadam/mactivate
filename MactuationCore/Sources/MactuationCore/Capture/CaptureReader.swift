@@ -37,9 +37,10 @@ public struct CaptureReader {
         for record in manifest.sensors {
             all.append(contentsOf: try samples(for: record.path))
         }
-        return all.sorted {
-            ($0.timestamp, $0.path.rawValue) < ($1.timestamp, $1.path.rawValue)
-        }
+        return all.enumerated().sorted {
+            ($0.element.timestamp, $0.element.path.rawValue, $0.offset) <
+                ($1.element.timestamp, $1.element.path.rawValue, $1.offset)
+        }.map(\.element)
     }
 
     public func labels() throws -> [LabelSpan] {
@@ -48,34 +49,33 @@ public struct CaptureReader {
               let text = String(data: data, encoding: .utf8) else {
             throw SensorSourceError.captureUnreadable("missing \(CaptureFormat.labelsFileName)")
         }
-        var lines = text.split(separator: "\n").map(String.init)
-        guard !lines.isEmpty else { return [] }
-        lines.removeFirst() // header
-        return try lines.map { line in
-            let fields = parseCSVRow(line)
+        var records = try parseCSVRecords(text)
+        guard !records.isEmpty else { return [] }
+        records.removeFirst() // header
+        return try records.map { fields in
             guard fields.count >= 6, let start = Double(fields[0]), let end = Double(fields[1]),
                   let repetition = Int(fields[3]) else {
-                throw SensorSourceError.captureUnreadable("bad label row: \(line)")
+                throw SensorSourceError.captureUnreadable("bad label row: \(fields.joined(separator: ","))")
             }
             return LabelSpan(start: start, end: end, label: fields[2], repetition: repetition,
                              intensity: fields[4], notes: fields[5])
         }
     }
 
-    private func parseCSVRow(_ line: String) -> [String] {
+    private func parseCSVRecords(_ text: String) throws -> [[String]] {
+        var records: [[String]] = []
         var fields: [String] = []
         var current = ""
         var inQuotes = false
-        var iterator = line.makeIterator()
-        while let character = iterator.next() {
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
             if inQuotes {
                 if character == "\"" {
-                    if let next = iterator.next() {
-                        if next == "\"" { current.append("\"") } else if next == "," {
-                            inQuotes = false
-                            fields.append(current)
-                            current = ""
-                        }
+                    let next = text.index(after: index)
+                    if next < text.endIndex && text[next] == "\"" {
+                        current.append("\"")
+                        index = next
                     } else {
                         inQuotes = false
                     }
@@ -87,11 +87,25 @@ public struct CaptureReader {
             } else if character == "," {
                 fields.append(current)
                 current = ""
+            } else if character == "\n" {
+                fields.append(current)
+                records.append(fields)
+                fields = []
+                current = ""
+            } else if character == "\r" {
+                // Ignore CR in CRLF record separators.
             } else {
                 current.append(character)
             }
+            index = text.index(after: index)
         }
-        fields.append(current)
-        return fields
+        guard !inQuotes else {
+            throw SensorSourceError.captureUnreadable("unterminated quoted label field")
+        }
+        if !fields.isEmpty || !current.isEmpty {
+            fields.append(current)
+            records.append(fields)
+        }
+        return records
     }
 }

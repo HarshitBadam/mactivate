@@ -75,6 +75,31 @@ final class DeterminismTests: XCTestCase {
         XCTAssertEqual(replayed.value, originalDigest)
     }
 
+    func testEqualTimestampAndPathPreserveInputOrder() throws {
+        let samples: [SensorSample] = [
+            .imu(path: .spuAccelerometer, sample: IMUSample(timestamp: 1, x: 1, y: 0, z: 0)),
+            .imu(path: .spuAccelerometer, sample: IMUSample(timestamp: 1, x: 2, y: 0, z: 0)),
+            .imu(path: .spuAccelerometer, sample: IMUSample(timestamp: 1, x: 3, y: 0, z: 0))
+        ]
+        let replay = ReplaySensorSource(samples: samples)
+        var replayed: [SensorSample] = []
+        try replay.start { replayed.append($0) }
+        XCTAssertEqual(replayed, samples)
+
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mactuation-order-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let writer = try CaptureWriter(
+            directory: tempDir,
+            manifest: SessionManifest(label: "order", startedAt: Date(), toolVersion: "test-0"))
+        for sample in samples {
+            try writer.append(sample)
+        }
+        try writer.finalize()
+
+        XCTAssertEqual(try CaptureReader(directory: tempDir).mergedSamples(), samples)
+    }
+
     func testStartTwiceIsRejected() throws {
         let source = ReplaySensorSource(samples: [])
         try source.start { _ in }

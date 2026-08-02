@@ -79,6 +79,26 @@ final class CaptureRoundTripTests: XCTestCase {
         XCTAssertEqual(restored, awkward)
     }
 
+    func testLabelWithNewlineRoundTrips() throws {
+        let notes = "first line,\nsecond line with \"quotes\""
+        let writer = try CaptureWriter(directory: tempDir, manifest: makeManifest())
+        writer.addLabel(LabelSpan(start: 0.5, end: 0.6, label: "palm_single", repetition: 1,
+                                  intensity: "soft", notes: notes))
+        try writer.finalize()
+
+        XCTAssertEqual(try CaptureReader(directory: tempDir).labels(),
+                       [LabelSpan(start: 0.5, end: 0.6, label: "palm_single", repetition: 1,
+                                  intensity: "soft", notes: notes)])
+    }
+
+    func testMetadataOnlySensorHasEmptyStream() throws {
+        let writer = try CaptureWriter(directory: tempDir, manifest: makeManifest())
+        writer.recordSensorMetadata(path: .spuAccelerometer, effectiveRateHz: 100)
+        try writer.finalize()
+
+        XCTAssertEqual(try CaptureReader(directory: tempDir).samples(for: .spuAccelerometer), [])
+    }
+
     func testMissingManifestFailsCleanly() {
         XCTAssertThrowsError(try CaptureReader(directory: tempDir))
     }
