@@ -30,13 +30,14 @@ final class AppCoordinator {
          preferencesStore: AppPreferencesStoring =
             UserDefaultsAppPreferencesStore(),
          executor: ActionExecutor = ActionExecutor(),
-         launchAtLogin: LaunchAtLoginManaging = LaunchAtLoginManager()) {
+         launchAtLogin: LaunchAtLoginManaging = LaunchAtLoginManager(),
+         panelController: PanelController? = nil) {
         self.runtime = runtime
         self.preferencesStore = preferencesStore
         self.executor = executor
         self.launchAtLogin = launchAtLogin
         state = AppState()
-        panelController = PanelController()
+        self.panelController = panelController ?? PanelController()
         statusItemController = nil
         settingsWindowController = nil
         onboardingWindowController = nil
@@ -45,16 +46,19 @@ final class AppCoordinator {
         state.preferences = loadResult.preferences
         state.configuration = runtime.currentConfiguration
         state.snapshot = runtime.currentSnapshot
+        state.tapCalibrationProfile = runtime.currentTapCalibrationProfile
         state.launchAtLoginStatus = launchAtLogin.status
-        state.recentWarning = loadResult.warning
+        state.recentWarning = loadResult.warning ?? runtime.tapCalibrationWarning
 
         let viewActions = AppViewActions(
             performAction: { [weak self] action in
                 self?.perform(action, invocation: .quickAction)
             },
-            showSettings: { [weak self] in self?.showSettings() }
+            showSettings: { [weak self] slot in
+                self?.showSettings(focusedSlot: slot)
+            }
         )
-        panelController.setRootView(AnyView(
+        self.panelController.setRootView(AnyView(
             PanelContentView(state: state, actions: viewActions)
         ))
 
@@ -115,16 +119,31 @@ final class AppCoordinator {
     private func handle(_ output: RuntimeOutput) {
         switch output {
         case .statusChanged(let snapshot):
-            logger.notice(
-                "Runtime state changed to \(String(describing: snapshot.lifecycle), privacy: .public)"
-            )
+            if state.snapshot.lifecycle != snapshot.lifecycle {
+                logger.notice(
+                    "Runtime state changed to \(String(describing: snapshot.lifecycle), privacy: .public)"
+                )
+            }
             state.snapshot = snapshot
             if snapshot.lifecycle == .suspended {
                 panelController.closeForSleep()
             }
+        case .tapFeedback(let feedback):
+            state.lastTapFeedback = feedback
+            if let target = state.tapCalibrationTarget,
+               feedback.memberCount == 1,
+               feedback.outcome != .candidate {
+                state.tapCalibrationDraft.record(
+                    feedback,
+                    side: target.side,
+                    intensity: target.intensity
+                )
+            }
         case .intent(.showPanel):
+            guard state.tapCalibrationTarget == nil else { break }
             panelController.showPassiveHint()
         case .intent(.performAction(let identifier, let trigger)):
+            guard state.tapCalibrationTarget == nil else { break }
             guard let action = state.action(for: identifier) else {
                 state.actionError = AppActionError.unknownAction.localizedDescription
                 return
@@ -189,12 +208,66 @@ final class AppCoordinator {
             setLaunchAtLogin: { [weak self] enabled in
                 self?.setLaunchAtLoginEnabled(enabled)
             },
+            beginCalibrationCapture: { [weak self] target in
+                self?.beginCalibrationCapture(target)
+            },
+            stopCalibrationCapture: { [weak self] in
+                self?.state.tapCalibrationTarget = nil
+            },
+            saveCalibration: { [weak self] in
+                self?.saveCalibration()
+            },
+            resetCalibration: { [weak self] in
+                self?.resetCalibration()
+            },
+            testAction: { [weak self] identifier in
+                guard let self, let action = self.state.action(for: identifier) else {
+                    return
+                }
+                self.perform(action, invocation: .quickAction)
+            },
             reset: { [weak self] in self?.resetSettings() }
         )
     }
 
-    private func showSettings() {
+    private func beginCalibrationCapture(_ target: TapCalibrationTarget) {
+        state.tapCalibrationTarget = nil
+        state.tapCalibrationDraft.reset(
+            side: target.side,
+            intensity: target.intensity
+        )
+        state.tapCalibrationError = nil
+        state.lastTapFeedback = nil
+        state.tapCalibrationTarget = target
+    }
+
+    private func saveCalibration() {
+        state.tapCalibrationTarget = nil
+        do {
+            let profile = try state.tapCalibrationDraft.buildProfile()
+            try runtime.applyTapCalibration(profile)
+            state.tapCalibrationProfile = profile
+            state.tapCalibrationError = nil
+        } catch {
+            state.tapCalibrationError = String(describing: error)
+        }
+    }
+
+    private func resetCalibration() {
+        do {
+            try runtime.resetTapCalibration()
+            state.tapCalibrationDraft.reset()
+            state.tapCalibrationTarget = nil
+            state.tapCalibrationProfile = nil
+            state.tapCalibrationError = nil
+        } catch {
+            state.tapCalibrationError = error.localizedDescription
+        }
+    }
+
+    private func showSettings(focusedSlot: Int? = nil) {
         panelController.dismiss()
+        state.settingsFocusedSlot = focusedSlot
         refreshExternalState()
         settingsWindowController?.present()
     }
@@ -234,6 +307,9 @@ final class AppCoordinator {
         updated.quickActionIDs = updated.normalizedQuickActionIDs
         updated.quickActionIDs[index] = identifier
         savePreferences(updated)
+        if state.settingsFocusedSlot == index {
+            state.settingsFocusedSlot = nil
+        }
     }
 
     private func addApplication() {

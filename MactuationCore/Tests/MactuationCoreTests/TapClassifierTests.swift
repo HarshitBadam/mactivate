@@ -117,4 +117,42 @@ final class TapClassifierTests: XCTestCase {
         XCTAssertEqual(classifier.classify(samples: mixed),
                        classifier.classify(imuSamples: imu))
     }
+
+    func testPersonalCalibrationUsesAdaptiveThresholdForLaterMembers() {
+        var calibration = TapCalibration.mac14_2Discovery
+        calibration.version = "personal-test"
+        let personal = TapClassifier(calibration: calibration)
+        let samples = makeSamples(
+            duration: 5,
+            pulses: [
+                (time: 2.0, axis: 2, amplitude: 0.08),
+                (time: 2.4, axis: 2, amplitude: 0.03)
+            ]
+        )
+
+        let groups = personal.classify(imuSamples: samples)
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].members.count, 2)
+        XCTAssertTrue(groups[0].verdict.isAccepted)
+    }
+
+    func testPersonalCalibrationSuppressesFirmTapAftershock() {
+        var calibration = TapCalibration.mac14_2Discovery
+        calibration.version = "personal-test"
+        let personal = TapClassifier(calibration: calibration)
+        let samples = makeSamples(
+            duration: 5,
+            pulses: [
+                (time: 2.0, axis: 2, amplitude: -0.4),
+                (time: 2.18, axis: 2, amplitude: -0.10)
+            ]
+        )
+
+        let groups = personal.classify(imuSamples: samples)
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].members.count, 1)
+        XCTAssertTrue(groups[0].verdict.isAccepted)
+    }
 }

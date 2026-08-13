@@ -28,11 +28,48 @@ public enum TapVerdict: Equatable, Sendable {
     }
 }
 
+public enum TapRejectionReason: String, Codable, Equatable, Sendable {
+    case noMembers
+    case tooManyMembers
+    case firmLateralImpulse
+    case firmDecay
+    case comfortZImpulse
+    case comfortLateralImpulse
+
+    public var guidance: String {
+        switch self {
+        case .noMembers:
+            return "No complete tap impulse was measured."
+        case .tooManyMembers:
+            return "The tap rang through the chassis as too many impacts; use a lighter touch."
+        case .firmLateralImpulse:
+            return "The movement looked more like a desk bump than a palm-rest tap."
+        case .firmDecay:
+            return "The impact rang for too long; use a shorter, lighter tap."
+        case .comfortZImpulse:
+            return "The impulse direction did not match a calibrated palm-rest tap."
+        case .comfortLateralImpulse:
+            return "The movement contained too much sideways chassis motion."
+        }
+    }
+}
+
 /// One grouped tap candidate: 1–n onset events within the grouping window.
 /// `members.count` is the tap count (single/double/triple) when accepted.
 public struct TapGroup: Equatable, Sendable {
     public var members: [TapEventFeatures]
     public var verdict: TapVerdict
+    public var rejectionReason: TapRejectionReason?
+
+    public init(
+        members: [TapEventFeatures],
+        verdict: TapVerdict,
+        rejectionReason: TapRejectionReason? = nil
+    ) {
+        self.members = members
+        self.verdict = verdict
+        self.rejectionReason = rejectionReason
+    }
 
     /// Stable identifier: the calibration version plus the first member's
     /// exact peak timestamp. Identical input and calibration reproduce it
@@ -44,6 +81,7 @@ public struct TapGroup: Equatable, Sendable {
 
 struct TapClassifierAnalysis {
     var groups: [TapGroup]
+    var candidates: [TapEventFeatures]
     var resolvedThrough: SensorTimestamp?
 }
 
@@ -111,7 +149,11 @@ public struct TapClassifier: Sendable {
                  endOfInput: Bool, detectionStartIndex: Int) -> TapClassifierAnalysis {
         let n = rows.count
         guard n >= 2, rate.isFinite, rate > 0 else {
-            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+            return TapClassifierAnalysis(
+                groups: [],
+                candidates: [],
+                resolvedThrough: nil
+            )
         }
         let times = rows.map(\.timestamp)
         // Centered moving-average high-pass, mirroring analyze_imu.py:
@@ -139,7 +181,11 @@ public struct TapClassifier: Sendable {
 
         let stableEnd = endOfInput ? n : max(0, n - half)
         guard stableEnd > 0 else {
-            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+            return TapClassifierAnalysis(
+                groups: [],
+                candidates: [],
+                resolvedThrough: nil
+            )
         }
         let detection = detectEvents(
             times: times,
@@ -152,16 +198,25 @@ public struct TapClassifier: Sendable {
         )
         let groups = groupAndJudge(events: detection.events)
         guard !endOfInput else {
-            return TapClassifierAnalysis(groups: groups, resolvedThrough: times.last)
+            return TapClassifierAnalysis(
+                groups: groups,
+                candidates: detection.events,
+                resolvedThrough: times.last
+            )
         }
         guard let resolvedThrough = detection.resolvedThrough else {
-            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+            return TapClassifierAnalysis(
+                groups: [],
+                candidates: detection.events,
+                resolvedThrough: nil
+            )
         }
         return TapClassifierAnalysis(
             groups: groups.filter {
                 guard let last = $0.members.last else { return false }
                 return last.time + calibration.groupGapS <= resolvedThrough
             },
+            candidates: detection.events,
             resolvedThrough: resolvedThrough
         )
     }
@@ -183,7 +238,13 @@ public struct TapClassifier: Sendable {
         var resolvedEndIndex = endIndex - 1
         var i = startIndex
         while i < endIndex {
-            guard magnitude[i] >= threshold else {
+            let isPersonalCalibration = calibration.version.hasPrefix("personal-")
+            let isLaterGroupMember = isPersonalCalibration &&
+                events.last.map {
+                    times[i] - $0.time <= calibration.groupGapS
+                } == true
+            let activeThreshold = isLaterGroupMember ? threshold * 0.65 : threshold
+            guard magnitude[i] >= activeThreshold else {
                 i += 1
                 continue
             }
@@ -202,11 +263,12 @@ public struct TapClassifier: Sendable {
                 break
             }
             var tail = peakIdx
-            while tail < endIndex - 1 && magnitude[tail + 1] > threshold / 2 {
+            while tail < endIndex - 1 &&
+                magnitude[tail + 1] > activeThreshold / 2 {
                 tail += 1
             }
             if requireCompleteSupport && tail == endIndex - 1 &&
-                magnitude[tail] > threshold / 2 {
+                magnitude[tail] > activeThreshold / 2 {
                 resolvedEndIndex = i - 1
                 break
             }
@@ -222,12 +284,22 @@ public struct TapClassifier: Sendable {
                 }
                 impulses[axis] = sum / rate
             }
-            events.append(TapEventFeatures(
+            let candidate = TapEventFeatures(
                 time: times[peakIdx],
                 peakG: magnitude[peakIdx],
                 decayMs: decayMs,
                 zImpulseMgS: impulses[2] * 1000,
-                lateralImpulseMgS: (abs(impulses[0]) + abs(impulses[1])) * 1000))
+                lateralImpulseMgS:
+                    (abs(impulses[0]) + abs(impulses[1])) * 1000
+            )
+            let isPeakScaledAftershock = isPersonalCalibration &&
+                events.last.map {
+                    candidate.time - $0.time <= 0.22 &&
+                        candidate.peakG < $0.peakG * 0.45
+                } == true
+            if !isPeakScaledAftershock {
+                events.append(candidate)
+            }
             i = max(peakIdx + refractory, tail + 1)
         }
         let resolvedThrough = resolvedEndIndex >= startIndex
@@ -245,30 +317,59 @@ public struct TapClassifier: Sendable {
                 groups.append([event])
             }
         }
-        return groups.map { TapGroup(members: $0, verdict: verdict(for: $0)) }
+        return groups.map { members in
+            let result = verdict(for: members)
+            return TapGroup(
+                members: members,
+                verdict: result.verdict,
+                rejectionReason: result.reason
+            )
+        }
     }
 
-    private func verdict(for members: [TapEventFeatures]) -> TapVerdict {
-        guard members.count <= calibration.maxGroupMembers, let first = members.first else {
-            return .rejected
+    private func verdict(
+        for members: [TapEventFeatures]
+    ) -> (verdict: TapVerdict, reason: TapRejectionReason?) {
+        guard let first = members.first else {
+            return (.rejected, .noMembers)
+        }
+        guard members.count <= calibration.maxGroupMembers else {
+            return (.rejected, .tooManyMembers)
         }
         // Amplitude selects the tier. A firm candidate must pass the scaled
         // firm veto; it cannot fall back to the looser comfort gate merely
         // because its Z impulse is positive.
-        for side in calibration.firmTiers.keys.sorted() {
-            let tier = calibration.firmTiers[side]!
-            if first.peakG >= tier.amplitudeCutG {
-                if first.lateralImpulseMgS / first.peakG <= tier.lateralToPeakMaxMgSPerG
-                    && first.decayMs <= tier.decayMaxMs {
-                    return .acceptedFirm(side)
-                }
-                return .rejected
+        let matchingFirmTiers = calibration.firmTiers.keys.sorted().compactMap {
+            side -> (PalmSide, TapCalibration.FirmTier)? in
+            guard let tier = calibration.firmTiers[side],
+                  first.peakG >= tier.amplitudeCutG else {
+                return nil
             }
+            return (side, tier)
         }
-        if first.zImpulseMgS > 0 && first.lateralImpulseMgS < calibration.comfortLateralVetoMgS {
-            return .acceptedComfort
+        if !matchingFirmTiers.isEmpty {
+            for (side, tier) in matchingFirmTiers
+            where first.lateralImpulseMgS / first.peakG <=
+                tier.lateralToPeakMaxMgSPerG &&
+                first.decayMs <= tier.decayMaxMs {
+                return (.acceptedFirm(side), nil)
+            }
+            let passesLateral = matchingFirmTiers.contains { _, tier in
+                first.lateralImpulseMgS / first.peakG <=
+                    tier.lateralToPeakMaxMgSPerG
+            }
+            return (
+                .rejected,
+                passesLateral ? .firmDecay : .firmLateralImpulse
+            )
         }
-        return .rejected
+        guard first.zImpulseMgS > 0 else {
+            return (.rejected, .comfortZImpulse)
+        }
+        guard first.lateralImpulseMgS < calibration.comfortLateralVetoMgS else {
+            return (.rejected, .comfortLateralImpulse)
+        }
+        return (.acceptedComfort, nil)
     }
 }
 

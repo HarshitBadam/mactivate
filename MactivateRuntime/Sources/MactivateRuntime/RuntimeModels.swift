@@ -110,6 +110,131 @@ public struct TapTrigger: Equatable, Sendable {
     }
 }
 
+public enum TapFeedbackOutcome: Equatable, Sendable {
+    case candidate
+    case rejected(TapRejectionReason)
+    case acceptedUnmapped(TapPattern)
+    case duplicate(TapPattern)
+    case dispatched(pattern: TapPattern, action: ActionIdentifier)
+}
+
+public struct TapFeedback: Equatable, Sendable {
+    public let outcome: TapFeedbackOutcome
+    public let memberCount: Int
+    public let features: TapEventFeatures
+    public let sensorTimestamp: SensorTimestamp
+    public let resolutionLatencyS: Double
+
+    public init(
+        outcome: TapFeedbackOutcome,
+        memberCount: Int,
+        features: TapEventFeatures,
+        sensorTimestamp: SensorTimestamp,
+        resolutionLatencyS: Double
+    ) {
+        self.outcome = outcome
+        self.memberCount = memberCount
+        self.features = features
+        self.sensorTimestamp = sensorTimestamp
+        self.resolutionLatencyS = resolutionLatencyS
+    }
+}
+
+public enum TapCalibrationSide: String, CaseIterable, Hashable, Sendable {
+    case left
+    case right
+
+    var coreValue: PalmSide {
+        switch self {
+        case .left: return .left
+        case .right: return .right
+        }
+    }
+}
+
+public enum TapCalibrationIntensity: String, CaseIterable, Hashable, Sendable {
+    case comfort
+    case firm
+
+    var coreValue: TapCalibrationForce {
+        switch self {
+        case .comfort: return .comfort
+        case .firm: return .firm
+        }
+    }
+}
+
+public struct TapCalibrationTarget: Hashable, Sendable {
+    public var side: TapCalibrationSide
+    public var intensity: TapCalibrationIntensity
+
+    public init(
+        side: TapCalibrationSide,
+        intensity: TapCalibrationIntensity
+    ) {
+        self.side = side
+        self.intensity = intensity
+    }
+}
+
+public struct TapCalibrationDraft: Equatable, Sendable {
+    private var comfort: [PalmSide: [TapEventFeatures]] = [:]
+    private var firm: [PalmSide: [TapEventFeatures]] = [:]
+
+    public init() {}
+
+    public mutating func record(
+        _ feedback: TapFeedback,
+        side: TapCalibrationSide,
+        intensity: TapCalibrationIntensity
+    ) {
+        switch intensity {
+        case .comfort:
+            comfort[side.coreValue, default: []].append(feedback.features)
+        case .firm:
+            firm[side.coreValue, default: []].append(feedback.features)
+        }
+    }
+
+    public func sampleCount(
+        side: TapCalibrationSide,
+        intensity: TapCalibrationIntensity
+    ) -> Int {
+        switch intensity {
+        case .comfort:
+            return comfort[side.coreValue]?.count ?? 0
+        case .firm:
+            return firm[side.coreValue]?.count ?? 0
+        }
+    }
+
+    public mutating func reset(
+        side: TapCalibrationSide,
+        intensity: TapCalibrationIntensity
+    ) {
+        switch intensity {
+        case .comfort:
+            comfort[side.coreValue] = []
+        case .firm:
+            firm[side.coreValue] = []
+        }
+    }
+
+    public mutating func reset() {
+        comfort.removeAll()
+        firm.removeAll()
+    }
+
+    public func buildProfile() throws -> TapCalibrationProfile {
+        try TapCalibrationProfileBuilder.build(
+            comfort: comfort,
+            firm: firm
+        )
+    }
+}
+
+public typealias RuntimeTapCalibrationProfile = TapCalibrationProfile
+
 public enum PanelPresentationReason: Equatable, Sendable {
     case ambientLightHint
 }
@@ -164,6 +289,7 @@ public enum RuntimeWarning: Equatable, Sendable {
 
 public enum RuntimeOutput: Equatable, Sendable {
     case statusChanged(RuntimeSnapshot)
+    case tapFeedback(TapFeedback)
     case intent(RuntimeIntent)
     case warning(RuntimeWarning)
 }

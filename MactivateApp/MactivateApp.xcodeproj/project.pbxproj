@@ -26,6 +26,7 @@
 		010000000000000000000103 /* ActionExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000103 /* ActionExecutorTests.swift */; };
 		010000000000000000000104 /* RuntimeBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000104 /* RuntimeBridgeTests.swift */; };
 		010000000000000000000201 /* MactivateRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 0F0000000000000000000002 /* MactivateRuntime */; };
+		010000000000000000000202 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0F0000000000000000000004 /* DynamicNotchKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				010000000000000000000201 /* MactivateRuntime in Frameworks */,
+				010000000000000000000202 /* DynamicNotchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -212,6 +214,7 @@
 			name = MactivateApp;
 			packageProductDependencies = (
 				0F0000000000000000000002 /* MactivateRuntime */,
+				0F0000000000000000000004 /* DynamicNotchKit */,
 			);
 			productName = Mactivate;
 			productReference = 020000000000000000000201 /* Mactivate.app */;
@@ -265,6 +268,7 @@
 			mainGroup = 050000000000000000000001;
 			packageReferences = (
 				0F0000000000000000000001 /* XCLocalSwiftPackageReference "../MactivateRuntime" */,
+				0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */,
 			);
 			productRefGroup = 050000000000000000000030 /* Products */;
 			projectDirPath = "";
@@ -502,11 +506,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MrKai77/DynamicNotchKit";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		0F0000000000000000000002 /* MactivateRuntime */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 0F0000000000000000000001 /* XCLocalSwiftPackageReference "../MactivateRuntime" */;
 			productName = MactivateRuntime;
+		};
+		0F0000000000000000000004 /* DynamicNotchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */;
+			productName = DynamicNotchKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

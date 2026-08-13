@@ -2,73 +2,51 @@ import SwiftUI
 
 struct AppViewActions {
     let performAction: (AppActionDefinition) -> Void
-    let showSettings: () -> Void
+    let showSettings: (Int?) -> Void
 }
 
 struct PanelContentView: View {
     @ObservedObject var state: AppState
     let actions: AppViewActions
 
-    @Environment(\.accessibilityReduceTransparency)
-    private var reduceTransparency
-
     var body: some View {
-        VStack(spacing: 0) {
-            notchConnector
-
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                quickActions
-                statusFooter
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            quickActions
+            statusFooter
         }
-        .frame(width: 388, height: 292, alignment: .top)
-        .background(panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.primary.opacity(0.10))
-        }
-        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+        .padding(.horizontal, 2)
+        .frame(width: 358, height: 224, alignment: .top)
+        .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Mactivate quick actions")
-    }
-
-    private var notchConnector: some View {
-        Capsule(style: .continuous)
-            .fill(.black)
-            .frame(width: 116, height: 8)
-            .padding(.top, 2)
-            .padding(.bottom, 8)
-            .accessibilityHidden(true)
     }
 
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "hand.tap.fill")
                 .font(.title3)
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
-                .background(.primary.opacity(0.08), in: Circle())
+                .background(.white.opacity(0.12), in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Mactivate")
                     .font(.headline)
                 Text(state.tapStatus)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.62))
                     .lineLimit(1)
             }
 
             Spacer()
 
-            Button(action: actions.showSettings) {
+            Button { actions.showSettings(nil) } label: {
                 Image(systemName: "gearshape")
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.75))
             .help("Settings")
             .accessibilityLabel("Open Mactivate settings")
         }
@@ -101,7 +79,7 @@ struct PanelContentView: View {
                     .buttonStyle(QuickActionButtonStyle())
                     .accessibilityIdentifier("quickAction.\(index)")
                 } else {
-                    Button(action: actions.showSettings) {
+                    Button { actions.showSettings(index) } label: {
                         HStack(spacing: 9) {
                             Image(systemName: "plus")
                                 .frame(width: 20)
@@ -122,7 +100,7 @@ struct PanelContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             Label(state.panelHintStatus, systemImage: "sun.min")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.58))
                 .lineLimit(1)
 
             if let error = state.actionError {
@@ -134,21 +112,13 @@ struct PanelContentView: View {
             } else if let warning = state.recentWarning {
                 Label(warning, systemImage: "exclamationmark.circle")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.58))
                     .lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var panelBackground: some View {
-        if reduceTransparency {
-            Color(nsColor: .windowBackgroundColor)
-        } else {
-            Rectangle().fill(.ultraThinMaterial)
-        }
-    }
 }
 
 private struct QuickActionButtonStyle: ButtonStyle {
@@ -157,15 +127,13 @@ private struct QuickActionButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isPlaceholder ? .secondary : .primary)
+            .foregroundStyle(
+                isPlaceholder ? .white.opacity(0.55) : .white
+            )
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(.primary.opacity(configuration.isPressed ? 0.12 : 0.07))
+                    .fill(.white.opacity(configuration.isPressed ? 0.18 : 0.10))
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(.primary.opacity(0.08))
-            }
             .scaleEffect(
                 !reduceMotion && configuration.isPressed ? 0.98 : 1
             )
@@ -183,7 +151,7 @@ struct PanelContentView_Previews: PreviewProvider {
             state: AppState(),
             actions: AppViewActions(
                 performAction: { _ in },
-                showSettings: {}
+                showSettings: { _ in }
             )
         )
         .padding(30)

@@ -105,6 +105,34 @@ final class TapStreamClassifierTests: XCTestCase {
         XCTAssertLessThan(latency, 1.5)
     }
 
+    func testCandidateFeedbackPrecedesFinalTapCount() throws {
+        let samples = makeSamples(
+            duration: 3.6,
+            pulses: [(time: 2.0, x: 0, y: 0, z: 0.08)]
+        )
+        let stream = try TapStreamClassifier(
+            calibration: calibration,
+            sampleRateHz: rate
+        )
+        var candidateAt: SensorTimestamp?
+        var resolvedAt: SensorTimestamp?
+
+        for sample in samples {
+            let update = try stream.appendWithFeedback(sample)
+            if !update.candidates.isEmpty, candidateAt == nil {
+                candidateAt = sample.timestamp
+            }
+            if !update.resolvedGroups.isEmpty, resolvedAt == nil {
+                resolvedAt = sample.timestamp
+            }
+        }
+
+        let candidate = try XCTUnwrap(candidateAt)
+        let resolved = try XCTUnwrap(resolvedAt)
+        XCTAssertLessThan(candidate - 2.0, 0.6)
+        XCTAssertGreaterThan(resolved - candidate, 0.7)
+    }
+
     func testOverlappingWindowsEmitEachGroupOnceAndStayBounded() throws {
         let samples = makeSamples(
             duration: 12,

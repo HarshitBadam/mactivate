@@ -13,7 +13,7 @@ public final class MactivateRuntimeController {
     private let outputHandler: OutputHandler
     private let queueKey = DispatchSpecificKey<UInt8>()
 
-    private let tapClassifier: TapStreamClassifier
+    private var tapClassifier: TapStreamClassifier
     private let panelDetector: AmbientLightDipDetector
 
     private var configuration: RuntimeConfiguration
@@ -141,6 +141,21 @@ public final class MactivateRuntimeController {
 
     public func resetConfiguration() throws {
         try setConfiguration(.default)
+    }
+
+    public func applyTapCalibration(_ calibration: TapCalibration) throws {
+        try withRuntimeQueue {
+            tapClassifier = try TapStreamClassifier(
+                calibration: calibration,
+                configuration: tapClassifier.configuration
+            )
+            emittedTapIDs.removeAll(keepingCapacity: true)
+            emittedTapFIFO.removeAll(keepingCapacity: true)
+            if tapSource != nil {
+                snapshot.tap = .warmingUp
+                publishSnapshotIfChanged()
+            }
+        }
     }
 
     private func startLocked() {
@@ -286,17 +301,32 @@ public final class MactivateRuntimeController {
         guard generation == tapGeneration, tapSource != nil else { return }
         switch event {
         case .sample(let sample):
-            guard case .imu(let path, _) = sample,
+            guard case .imu(let path, let imu) = sample,
                   path == .spuAccelerometer else { return }
             do {
-                let groups = try tapClassifier.append(sample)
+                let update = try tapClassifier.appendWithFeedback(imu)
                 if let measuredRate = tapClassifier.sampleRateHz,
                    snapshot.tap != .available(measuredRateHz: measuredRate) {
                     snapshot.tap = .available(measuredRateHz: measuredRate)
                     publishSnapshotIfChanged()
                 }
-                for group in groups {
-                    routeTapGroupLocked(group)
+                for candidate in update.candidates {
+                    emit(.tapFeedback(TapFeedback(
+                        outcome: .candidate,
+                        memberCount: 1,
+                        features: candidate,
+                        sensorTimestamp: candidate.time,
+                        resolutionLatencyS: max(
+                            0,
+                            sample.timestamp - candidate.time
+                        )
+                    )))
+                }
+                for group in update.resolvedGroups {
+                    routeTapGroupLocked(
+                        group,
+                        resolvedAt: sample.timestamp
+                    )
                 }
             } catch {
                 failTapSourceLocked(reason: String(describing: error))
@@ -346,11 +376,47 @@ public final class MactivateRuntimeController {
         }
     }
 
-    private func routeTapGroupLocked(_ group: TapGroup) {
-        guard group.verdict.isAccepted,
-              let pattern = TapPattern(rawValue: group.members.count),
-              let firstMember = group.members.first,
-              let action = configuration.tapBindings[pattern] else {
+    private func routeTapGroupLocked(
+        _ group: TapGroup,
+        resolvedAt: SensorTimestamp
+    ) {
+        guard let firstMember = group.members.first else { return }
+        let latency = max(0, resolvedAt - firstMember.time)
+        let feedback: (
+            TapFeedbackOutcome,
+            TapPattern?,
+            ActionIdentifier?
+        )
+
+        if !group.verdict.isAccepted {
+            feedback = (
+                .rejected(group.rejectionReason ?? .comfortZImpulse),
+                nil,
+                nil
+            )
+        } else if let pattern = TapPattern(rawValue: group.members.count) {
+            if let action = configuration.tapBindings[pattern] {
+                feedback = (
+                    .dispatched(pattern: pattern, action: action),
+                    pattern,
+                    action
+                )
+            } else {
+                feedback = (.acceptedUnmapped(pattern), pattern, nil)
+            }
+        } else {
+            feedback = (.rejected(.tooManyMembers), nil, nil)
+        }
+
+        let baseFeedback = TapFeedback(
+            outcome: feedback.0,
+            memberCount: group.members.count,
+            features: firstMember,
+            sensorTimestamp: firstMember.time,
+            resolutionLatencyS: latency
+        )
+        guard let pattern = feedback.1, let action = feedback.2 else {
+            emit(.tapFeedback(baseFeedback))
             return
         }
         let eventID = RuntimeEventID(
@@ -359,7 +425,17 @@ public final class MactivateRuntimeController {
                 calibrationVersion: tapClassifier.classifier.calibration.version
             )
         )
-        guard reserveTapEventIDLocked(eventID) else { return }
+        guard reserveTapEventIDLocked(eventID) else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .duplicate(pattern),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency
+            )))
+            return
+        }
+        emit(.tapFeedback(baseFeedback))
         let trigger = TapTrigger(
             eventID: eventID,
             pattern: pattern,

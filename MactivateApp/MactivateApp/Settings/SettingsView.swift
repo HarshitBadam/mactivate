@@ -12,6 +12,11 @@ struct SettingsActions {
     let deleteAction: (ActionIdentifier) -> Void
     let refreshShortcuts: () -> Void
     let setLaunchAtLogin: (Bool) -> Void
+    let beginCalibrationCapture: (TapCalibrationTarget) -> Void
+    let stopCalibrationCapture: () -> Void
+    let saveCalibration: () -> Void
+    let resetCalibration: () -> Void
+    let testAction: (ActionIdentifier) -> Void
     let reset: () -> Void
 }
 
@@ -19,155 +24,172 @@ struct SettingsView: View {
     @ObservedObject var state: AppState
     let actions: SettingsActions
 
-    @State private var webName = ""
-    @State private var webAddress = "https://"
-    @State private var shortcutName = ""
+    @State private var showingAddAction = false
 
     var body: some View {
         TabView {
-            gestures
-                .tabItem { Label("Gestures", systemImage: "hand.tap") }
-            quickActions
-                .tabItem { Label("Quick Actions", systemImage: "square.grid.2x2") }
+            actionsPane
+                .tabItem { Label("Actions", systemImage: "bolt.fill") }
             general
                 .tabItem { Label("General", systemImage: "gearshape") }
             diagnostics
                 .tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
         }
-        .padding(20)
-        .frame(minWidth: 620, minHeight: 470)
+        .padding(18)
+        .frame(minWidth: 780, minHeight: 620)
+        .sheet(isPresented: $showingAddAction) {
+            AddActionSheet(
+                state: state,
+                actions: actions,
+                isPresented: $showingAddAction
+            )
+        }
     }
 
-    private var gestures: some View {
-        Form {
-            if let warning = state.recentWarning {
-                Section {
-                    Label(warning, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.secondary)
+    private var actionsPane: some View {
+        HStack(alignment: .top, spacing: 22) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Actions")
+                            .font(.largeTitle.bold())
+                        Text("Choose what appears in the notch and what each palm tap runs.")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    GroupBox("Notch panel") {
+                        PanelSlotPreview(state: state, actions: actions)
+                            .padding(.top, 4)
+                    }
+
+                    GroupBox("Palm-rest gestures") {
+                        VStack(spacing: 10) {
+                            gestureRow("Single tap", pattern: .single)
+                            gestureRow("Double tap", pattern: .double)
+                            gestureRow("Triple tap", pattern: .triple)
+                            Divider()
+                            HStack {
+                                Label(state.tapStatus, systemImage: "sensor.fill")
+                                Spacer()
+                                Text(state.tapCalibrationStatus)
+                                    .foregroundStyle(
+                                        state.tapCalibrationProfile == nil ?
+                                            .orange : .secondary
+                                    )
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.top, 4)
+                    }
+
+                    CalibrationView(state: state, actions: actions)
+                }
+                .padding(.trailing, 4)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            actionLibrary
+                .frame(width: 275)
+        }
+    }
+
+    private var actionLibrary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Action library")
+                    .font(.title2.bold())
+                Spacer()
+                Button {
+                    showingAddAction = true
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
             }
 
-            Section("Palm-rest taps") {
-                bindingPicker("Single tap", pattern: .single)
-                bindingPicker("Double tap", pattern: .double)
-                bindingPicker("Triple tap", pattern: .triple)
-            }
-
-            Section("Experimental hover") {
-                Toggle(
-                    "Open the panel from ambient-light hints",
-                    isOn: Binding(
-                        get: { state.configuration.panelHintsEnabled },
-                        set: actions.setPanelHintsEnabled
-                    )
-                )
-                Text(state.panelHintStatus)
-                    .foregroundStyle(.secondary)
-                Text(
-                    "Lighting and moving shadows can make this unavailable or " +
-                    "open the panel accidentally. It never executes an action."
-                )
+            Text("Test an action here before assigning it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(state.actions) { action in
+                        HStack(spacing: 9) {
+                            Image(systemName: action.kind.symbolName)
+                                .frame(width: 24)
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(action.name)
+                                    .lineLimit(1)
+                                Text(actionDetail(action))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Button {
+                                actions.testAction(action.id)
+                            } label: {
+                                Image(systemName: "play.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Test \(action.name)")
+                            if action.id != AppActionDefinition.showPanel.id {
+                                Button(role: .destructive) {
+                                    actions.deleteAction(action.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Delete \(action.name)")
+                            }
+                        }
+                        .padding(10)
+                        .background(
+                            .primary.opacity(0.055),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                    }
+                }
             }
+
+            if let error = state.actionError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Button {
+                showingAddAction = true
+            } label: {
+                Label("Add an action", systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
         }
-        .formStyle(.grouped)
     }
 
-    private var quickActions: some View {
-        Form {
-            if let error = state.actionError {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                        .accessibilityLabel("Action error: \(error)")
-                }
-            }
-
-            Section("Panel slots") {
-                ForEach(0..<AppPreferences.quickActionCount, id: \.self) { index in
-                    Picker(
-                        "Slot \(index + 1)",
-                        selection: Binding(
-                            get: {
-                                state.preferences.normalizedQuickActionIDs[index]
-                            },
-                            set: { actions.setQuickAction(index, $0) }
-                        )
-                    ) {
-                        Text("None").tag(ActionIdentifier?.none)
-                        ForEach(state.actions) { action in
-                            Text(action.name).tag(Optional(action.id))
-                        }
-                    }
-                }
-            }
-
-            Section("Action library") {
-                ForEach(state.preferences.actions) { action in
-                    HStack {
-                        Label(action.name, systemImage: action.kind.symbolName)
-                        Spacer()
-                        Button(role: .destructive) {
-                            actions.deleteAction(action.id)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Delete \(action.name)")
-                    }
-                }
-                Button("Add Application…", action: actions.addApplication)
-            }
-
-            Section("Add web link") {
-                TextField("Name", text: $webName)
-                TextField("http:// or https://", text: $webAddress)
-                Button("Add Web Link") {
-                    if actions.addWebURL(webName, webAddress) {
-                        webName = ""
-                        webAddress = "https://"
-                    }
-                }
-                .disabled(webName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            Section("Add macOS Shortcut") {
-                HStack {
-                    Picker("Shortcut", selection: $shortcutName) {
-                        Text("Choose a Shortcut").tag("")
-                        ForEach(state.availableShortcuts, id: \.self) {
-                            Text($0).tag($0)
-                        }
-                    }
-                    Button {
-                        actions.refreshShortcuts()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Refresh Shortcuts")
-                }
-                TextField("Or enter its exact name", text: $shortcutName)
-                Button("Add Shortcut") {
-                    if actions.addShortcut(shortcutName) {
-                        shortcutName = ""
-                    }
-                }
-                .disabled(shortcutName.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+    private func gestureRow(
+        _ title: String,
+        pattern: TapPattern
+    ) -> some View {
+        HStack {
+            Label(title, systemImage: "\(pattern.rawValue).circle.fill")
+                .frame(width: 130, alignment: .leading)
+            ActionPicker(
+                selection: Binding(
+                    get: { state.configuration.tapBindings[pattern] },
+                    set: { actions.setTapBinding($0, pattern) }
+                ),
+                actions: state.actions,
+                includeShowPanel: true
+            )
         }
-        .formStyle(.grouped)
     }
 
     private var general: some View {
         Form {
-            if let warning = state.recentWarning {
-                Section {
-                    Label(warning, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             Section("Startup") {
                 Toggle(
                     "Launch Mactivate at login",
@@ -181,9 +203,27 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Status") {
-                Label(state.tapStatus, systemImage: "hand.tap")
-                Label(state.panelHintStatus, systemImage: "sun.min")
+            Section("Experimental hover") {
+                Toggle(
+                    "Open the panel from ambient-light hints",
+                    isOn: Binding(
+                        get: { state.configuration.panelHintsEnabled },
+                        set: actions.setPanelHintsEnabled
+                    )
+                )
+                Text(state.panelHintStatus)
+                    .foregroundStyle(.secondary)
+                Text("Lighting and moving shadows can make this unavailable. It never runs an action.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Calibration") {
+                LabeledContent("Palm rests", value: state.tapCalibrationStatus)
+                Button("Reset palm-tap calibration", role: .destructive) {
+                    actions.resetCalibration()
+                }
+                .disabled(state.tapCalibrationProfile == nil)
             }
 
             Section {
@@ -199,11 +239,35 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Diagnostics")
                 .font(.title2.bold())
-            Text(
-                "Sensor availability is reported independently. The menu-bar " +
-                "panel remains available even when a sensor path fails."
-            )
-            .foregroundStyle(.secondary)
+            HStack {
+                statusCard(
+                    title: "Palm sensor",
+                    value: state.tapStatus,
+                    symbol: "hand.tap"
+                )
+                statusCard(
+                    title: "Calibration",
+                    value: state.tapCalibrationStatus,
+                    symbol: "scope"
+                )
+            }
+            if let feedback = state.lastTapFeedback {
+                GroupBox("Latest tap decision") {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(state.tapFeedbackDescription)
+                            .font(.headline)
+                        Text("Peak \(feedback.features.peakG, format: .number.precision(.fractionLength(3))) g · \(feedback.memberCount) candidate\(feedback.memberCount == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        if case .rejected(let reason) = feedback.outcome {
+                            Label(reason.guidance, systemImage: "lightbulb")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
             ScrollView {
                 Text(state.diagnosticText)
                     .font(.system(.body, design: .monospaced))
@@ -212,7 +276,6 @@ struct SettingsView: View {
                     .padding(12)
             }
             .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-
             HStack {
                 Button("Copy Diagnostics") {
                     NSPasteboard.general.clearContents()
@@ -233,24 +296,293 @@ struct SettingsView: View {
         .padding(8)
     }
 
-    private func bindingPicker(_ title: String,
-                               pattern: TapPattern) -> some View {
-        Picker(
-            title,
-            selection: Binding(
-                get: { state.configuration.tapBindings[pattern] },
-                set: { actions.setTapBinding($0, pattern) }
-            )
-        ) {
-            Text("None").tag(ActionIdentifier?.none)
-            ForEach(state.actions) { action in
-                Text(action.name).tag(Optional(action.id))
+    private func statusCard(
+        title: String,
+        value: String,
+        symbol: String
+    ) -> some View {
+        HStack {
+            Image(systemName: symbol)
+                .font(.title2)
+            VStack(alignment: .leading) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(value).font(.headline)
             }
-            if let binding = state.configuration.tapBindings[pattern],
-               state.action(for: binding) == nil {
-                Text("Missing action").tag(Optional(binding))
+            Spacer()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func actionDetail(_ action: AppActionDefinition) -> String {
+        switch action.kind {
+        case .showPanel: return "Built in"
+        case .application(let identifier): return identifier
+        case .webURL(let value): return value
+        case .shortcut: return "Shortcut"
+        }
+    }
+}
+
+private struct ActionPicker: View {
+    @Binding var selection: ActionIdentifier?
+    let actions: [AppActionDefinition]
+    let includeShowPanel: Bool
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            Text("None").tag(ActionIdentifier?.none)
+            ForEach(filteredActions) { action in
+                Label(action.name, systemImage: action.kind.symbolName)
+                    .tag(Optional(action.id))
+            }
+            if let selection,
+               !filteredActions.contains(where: { $0.id == selection }) {
+                Text("Missing action").tag(Optional(selection))
             }
         }
+        .labelsHidden()
+    }
+
+    private var filteredActions: [AppActionDefinition] {
+        actions.filter {
+            includeShowPanel || $0.id != AppActionDefinition.showPanel.id
+        }
+    }
+}
+
+private struct PanelSlotPreview: View {
+    @ObservedObject var state: AppState
+    let actions: SettingsActions
+
+    private let labels = [
+        "Top left", "Top right", "Bottom left", "Bottom right"
+    ]
+
+    var body: some View {
+        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+            GridRow {
+                slot(0)
+                slot(1)
+            }
+            GridRow {
+                slot(2)
+                slot(3)
+            }
+        }
+        .padding(12)
+        .background(
+            Color.black,
+            in: UnevenRoundedRectangle(
+                cornerRadii: .init(
+                    topLeading: 5,
+                    bottomLeading: 18,
+                    bottomTrailing: 18,
+                    topTrailing: 5
+                )
+            )
+        )
+    }
+
+    private func slot(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(labels[index])
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.55))
+                .textCase(.uppercase)
+            ActionPicker(
+                selection: Binding(
+                    get: { state.preferences.normalizedQuickActionIDs[index] },
+                    set: { actions.setQuickAction(index, $0) }
+                ),
+                actions: state.panelAssignableActions,
+                includeShowPanel: false
+            )
+            .tint(.white)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .stroke(
+                    state.settingsFocusedSlot == index ? .blue : .clear,
+                    lineWidth: 2
+                )
+        }
+    }
+}
+
+private struct CalibrationView: View {
+    @ObservedObject var state: AppState
+    let actions: SettingsActions
+
+    private let targets = [
+        TapCalibrationTarget(side: .left, intensity: .comfort),
+        TapCalibrationTarget(side: .left, intensity: .firm),
+        TapCalibrationTarget(side: .right, intensity: .comfort),
+        TapCalibrationTarget(side: .right, intensity: .firm)
+    ]
+
+    var body: some View {
+        GroupBox("Calibrate both palm rests") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(
+                    "Keep the Mac on a stable surface. Capture five short taps for each step. " +
+                    "Left and right values are learned separately, then combined safely."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                ForEach(targets, id: \.self) { target in
+                    captureRow(target)
+                }
+
+                if let feedback = state.lastTapFeedback,
+                   feedback.outcome == .candidate {
+                    Label(
+                        "Impact detected — waiting briefly to resolve single, double, or triple.",
+                        systemImage: "waveform"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+                } else {
+                    Text("After calibration, try a double and triple tap. The latest decision appears in Diagnostics.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let error = state.tapCalibrationError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    if state.tapCalibrationTarget != nil {
+                        Button("Stop capture", action: actions.stopCalibrationCapture)
+                    }
+                    Spacer()
+                    Button("Save calibration", action: actions.saveCalibration)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!isComplete || state.tapCalibrationTarget != nil)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func captureRow(_ target: TapCalibrationTarget) -> some View {
+        let count = state.tapCalibrationDraft.sampleCount(
+            side: target.side,
+            intensity: target.intensity
+        )
+        let isActive = state.tapCalibrationTarget == target
+        return HStack {
+            Image(systemName: count >= 5 ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(count >= 5 ? .green : .secondary)
+            Text("\(target.side.rawValue.capitalized) · \(target.intensity.rawValue.capitalized)")
+            Spacer()
+            Text("\(count)/5")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Button(isActive ? "Capturing…" : count >= 5 ? "Redo" : "Capture") {
+                actions.beginCalibrationCapture(target)
+            }
+            .disabled(isActive)
+        }
+    }
+
+    private var isComplete: Bool {
+        targets.allSatisfy {
+            state.tapCalibrationDraft.sampleCount(
+                side: $0.side,
+                intensity: $0.intensity
+            ) >= 5
+        }
+    }
+}
+
+private struct AddActionSheet: View {
+    @ObservedObject var state: AppState
+    let actions: SettingsActions
+    @Binding var isPresented: Bool
+
+    @State private var selection = 0
+    @State private var webName = ""
+    @State private var webAddress = "https://"
+    @State private var shortcutName = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add an action")
+                .font(.title.bold())
+            Picker("", selection: $selection) {
+                Text("Application").tag(0)
+                Text("Web Link").tag(1)
+                Text("Shortcut").tag(2)
+            }
+            .pickerStyle(.segmented)
+
+            Group {
+                switch selection {
+                case 0:
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Choose an installed application to launch.")
+                            .foregroundStyle(.secondary)
+                        Button("Choose Application…") {
+                            isPresented = false
+                            actions.addApplication()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                case 1:
+                    Form {
+                        TextField("Name", text: $webName)
+                        TextField("https://example.com", text: $webAddress)
+                        Button("Add Web Link") {
+                            if actions.addWebURL(webName, webAddress) {
+                                isPresented = false
+                            }
+                        }
+                        .disabled(webName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    .formStyle(.grouped)
+                default:
+                    Form {
+                        Picker("Shortcut", selection: $shortcutName) {
+                            Text("Choose a Shortcut").tag("")
+                            ForEach(state.availableShortcuts, id: \.self) {
+                                Text($0).tag($0)
+                            }
+                        }
+                        TextField("Or enter its exact name", text: $shortcutName)
+                        HStack {
+                            Button("Refresh", action: actions.refreshShortcuts)
+                            Button("Add Shortcut") {
+                                if actions.addShortcut(shortcutName) {
+                                    isPresented = false
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(
+                                shortcutName.trimmingCharacters(in: .whitespaces).isEmpty
+                            )
+                        }
+                    }
+                    .formStyle(.grouped)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { isPresented = false }
+            }
+        }
+        .padding(24)
+        .frame(width: 500, height: 340)
     }
 }
 
@@ -268,7 +600,7 @@ final class SettingsWindowController: NSWindowController {
             .miniaturizable,
             .resizable
         ]
-        window.setContentSize(NSSize(width: 660, height: 520))
+        window.setContentSize(NSSize(width: 830, height: 680))
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
@@ -292,55 +624,71 @@ struct OnboardingView: View {
     let complete: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 22) {
             Image(systemName: "hand.tap.fill")
                 .font(.system(size: 46))
-                .foregroundStyle(.primary)
 
-            Text("Welcome to Mactivate")
+            Text("Set up Mactivate")
                 .font(.largeTitle.bold())
+            Text("A quick setup makes palm taps reliable and verifies every action before you rely on it.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Label(
-                    "Single, double, and triple palm-rest taps can run your actions.",
-                    systemImage: "1.circle"
+            VStack(alignment: .leading, spacing: 13) {
+                setupStep(
+                    "Calibrate both palm rests",
+                    complete: state.tapCalibrationProfile != nil
                 )
-                Label(
-                    "The menu-bar hand icon always opens the panel.",
-                    systemImage: "2.circle"
+                setupStep(
+                    "Add and test your first action",
+                    complete: !state.preferences.actions.isEmpty
                 )
-                Label(
-                    "Experimental hover only opens the panel and depends on lighting.",
-                    systemImage: "3.circle"
+                setupStep(
+                    "Assign a single, double, or triple tap",
+                    complete:
+                        state.configuration.tapBindings.single != nil ||
+                        state.configuration.tapBindings.double != nil ||
+                        state.configuration.tapBindings.triple != nil
+                )
+                setupStep(
+                    "Optionally fill the four notch slots",
+                    complete: state.preferences.normalizedQuickActionIDs.contains {
+                        $0 != nil
+                    }
                 )
             }
-            .frame(maxWidth: 390, alignment: .leading)
-
-            Text(state.tapStatus)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .frame(maxWidth: 420, alignment: .leading)
 
             HStack {
-                Button("Configure Actions") {
+                Button("Set Up Now") {
                     openSettings()
                     complete()
                 }
-                Button("Continue") {
-                    complete()
-                }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+                Button("Finish Later", action: complete)
             }
         }
-        .padding(32)
-        .frame(width: 500, height: 390)
+        .padding(34)
+        .frame(width: 540, height: 460)
+    }
+
+    private func setupStep(_ title: String, complete: Bool) -> some View {
+        Label(
+            title,
+            systemImage: complete ? "checkmark.circle.fill" : "circle"
+        )
+        .foregroundStyle(complete ? .green : .primary)
     }
 }
 
 @MainActor
 final class OnboardingWindowController: NSWindowController {
-    init(state: AppState,
-         openSettings: @escaping () -> Void,
-         complete: @escaping () -> Void) {
+    init(
+        state: AppState,
+        openSettings: @escaping () -> Void,
+        complete: @escaping () -> Void
+    ) {
         let hostingController = NSHostingController(
             rootView: OnboardingView(
                 state: state,

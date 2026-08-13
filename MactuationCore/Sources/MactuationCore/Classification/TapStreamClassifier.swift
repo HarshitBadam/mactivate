@@ -28,6 +28,19 @@ public struct TapStreamConfiguration: Equatable, Sendable {
     }
 }
 
+public struct TapStreamUpdate: Equatable, Sendable {
+    public var candidates: [TapEventFeatures]
+    public var resolvedGroups: [TapGroup]
+
+    public init(
+        candidates: [TapEventFeatures] = [],
+        resolvedGroups: [TapGroup] = []
+    ) {
+        self.candidates = candidates
+        self.resolvedGroups = resolvedGroups
+    }
+}
+
 /// Bounded live adapter for the deterministic batch tap rule.
 ///
 /// `append` returns each newly resolved group once, including rejected groups
@@ -48,6 +61,7 @@ public final class TapStreamClassifier {
     private var lastClassificationTimestamp: SensorTimestamp?
     private var emittedIDs: [String: SensorTimestamp] = [:]
     private var emittedMemberTimes: [String: SensorTimestamp] = [:]
+    private var reportedCandidateTimes: [String: SensorTimestamp] = [:]
     private var hasTrimmed = false
     private var committedMemberThrough: SensorTimestamp?
 
@@ -90,6 +104,15 @@ public final class TapStreamClassifier {
     }
 
     public func append(_ sample: IMUSample) throws -> [TapGroup] {
+        try appendWithFeedback(sample).resolvedGroups
+    }
+
+    /// Returns low-latency candidate onsets separately from final grouped
+    /// single/double/triple decisions. A final decision intentionally waits
+    /// for the full grouping gap.
+    public func appendWithFeedback(
+        _ sample: IMUSample
+    ) throws -> TapStreamUpdate {
         if let previous = lastSampleTimestamp, sample.timestamp < previous {
             throw TapStreamError.nonMonotonicTimestamp(
                 previous: previous,
@@ -101,14 +124,14 @@ public final class TapStreamClassifier {
         freezeSampleRateIfReady()
         trimBuffer()
 
-        guard sampleRateHz != nil else { return [] }
+        guard sampleRateHz != nil else { return TapStreamUpdate() }
         if let lastClassificationTimestamp,
            sample.timestamp - lastClassificationTimestamp <
             configuration.classificationIntervalS {
-            return []
+            return TapStreamUpdate()
         }
         lastClassificationTimestamp = sample.timestamp
-        return classifyBuffered(endOfInput: false)
+        return classifyBufferedWithFeedback(endOfInput: false)
     }
 
     /// Resolves the truncated right edge for finite replay and diagnostics.
@@ -132,6 +155,7 @@ public final class TapStreamClassifier {
         lastClassificationTimestamp = nil
         emittedIDs.removeAll(keepingCapacity: true)
         emittedMemberTimes.removeAll(keepingCapacity: true)
+        reportedCandidateTimes.removeAll(keepingCapacity: true)
         hasTrimmed = false
         committedMemberThrough = nil
         lastResolvedThrough = nil
@@ -158,10 +182,21 @@ public final class TapStreamClassifier {
         }
         emittedIDs = emittedIDs.filter { $0.value >= bufferStart }
         emittedMemberTimes = emittedMemberTimes.filter { $0.value >= bufferStart }
+        reportedCandidateTimes = reportedCandidateTimes.filter {
+            $0.value >= bufferStart
+        }
     }
 
     private func classifyBuffered(endOfInput: Bool) -> [TapGroup] {
-        guard let sampleRateHz, samples.count >= 2 else { return [] }
+        classifyBufferedWithFeedback(endOfInput: endOfInput).resolvedGroups
+    }
+
+    private func classifyBufferedWithFeedback(
+        endOfInput: Bool
+    ) -> TapStreamUpdate {
+        guard let sampleRateHz, samples.count >= 2 else {
+            return TapStreamUpdate()
+        }
         let ignoredPrefix = hasTrimmed
             ? max(1, Int(classifier.calibration.detrendWindowS * sampleRateHz / 2))
             : 0
@@ -173,6 +208,14 @@ public final class TapStreamClassifier {
         )
         lastResolvedThrough = analysis.resolvedThrough
         let previousCommitWatermark = committedMemberThrough
+
+        var candidates: [TapEventFeatures] = []
+        for member in analysis.candidates {
+            let identifier = CaptureFormat.encode(member.time)
+            guard reportedCandidateTimes[identifier] == nil else { continue }
+            reportedCandidateTimes[identifier] = member.time
+            candidates.append(member)
+        }
 
         var newlyResolved: [TapGroup] = []
         for group in analysis.groups {
@@ -205,6 +248,9 @@ public final class TapStreamClassifier {
                 newWatermark
             )
         }
-        return newlyResolved
+        return TapStreamUpdate(
+            candidates: candidates,
+            resolvedGroups: newlyResolved
+        )
     }
 }

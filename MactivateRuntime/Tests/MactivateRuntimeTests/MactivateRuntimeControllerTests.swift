@@ -71,6 +71,50 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         harness.drain()
 
         XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        let feedback: [TapFeedback] = harness.collector.outputs.compactMap {
+            guard case .tapFeedback(let value) = $0 else { return nil }
+            return value
+        }
+        XCTAssertTrue(feedback.contains {
+            $0.outcome == .acceptedUnmapped(.double)
+        })
+        XCTAssertTrue(feedback.contains {
+            if case .rejected = $0.outcome {
+                return true
+            }
+            return false
+        })
+        harness.controller.stop()
+    }
+
+    func testCalibrationCanBeReplacedWithoutRestartingSource() throws {
+        let tapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let factory = ScriptedSourceFactory(tapSources: [tapSource])
+        let harness = try makeHarness(
+            factory: factory,
+            configuration: RuntimeConfiguration(
+                tapBindings: TapBindings(single: "single.action"),
+                panelHintsEnabled: false
+            )
+        )
+        harness.controller.start()
+        var calibration = TapCalibration.mac14_2Discovery
+        calibration.version = "personal-runtime-test"
+        calibration.eventThresholdG = 0.02
+
+        try harness.controller.applyTapCalibration(calibration)
+        sendIMU(
+            to: tapSource,
+            duration: 4,
+            pulses: [(2.0, 0, 0, 0.03)]
+        )
+        harness.drain()
+
+        XCTAssertEqual(tapSource.startCount, 1)
+        XCTAssertEqual(
+            actionIntents(in: harness.collector.outputs).map(\.0),
+            ["single.action"]
+        )
         harness.controller.stop()
     }
 

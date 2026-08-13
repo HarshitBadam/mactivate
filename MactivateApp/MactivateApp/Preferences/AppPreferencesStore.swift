@@ -2,7 +2,7 @@ import Foundation
 import MactivateRuntime
 
 struct AppPreferences: Codable, Equatable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
     static let quickActionCount = 4
 
     var schemaVersion: Int
@@ -45,10 +45,38 @@ struct AppPreferences: Codable, Equatable {
               Set(actions.map(\.id)).count == actions.count else {
             return false
         }
-        let knownIDs = Set(actions.map(\.id)).union([AppActionDefinition.showPanel.id])
+        let knownIDs = Set(actions.map(\.id))
         return normalizedQuickActionIDs.compactMap { $0 }.allSatisfy {
             knownIDs.contains($0)
         }
+    }
+
+    func migratedToCurrentSchema() -> AppPreferences {
+        let validActions = actions.filter { action in
+            guard action.isValid,
+                  action.id != AppActionDefinition.showPanel.id else {
+                return false
+            }
+            if case .showPanel = action.kind { return false }
+            return true
+        }
+        var seenIDs = Set<ActionIdentifier>()
+        let uniqueActions = validActions.filter {
+            seenIDs.insert($0.id).inserted
+        }
+        let validIDs = Set(uniqueActions.map(\.id))
+        return AppPreferences(
+            actions: uniqueActions,
+            quickActionIDs: normalizedQuickActionIDs.map {
+                guard let identifier = $0,
+                      identifier != AppActionDefinition.showPanel.id,
+                      validIDs.contains(identifier) else {
+                    return nil
+                }
+                return identifier
+            },
+            onboardingCompleted: onboardingCompleted
+        )
     }
 }
 
@@ -93,20 +121,31 @@ final class UserDefaultsAppPreferencesStore: AppPreferencesStoring {
         do {
             let decoder = JSONDecoder()
             let probe = try decoder.decode(SchemaProbe.self, from: data)
-            guard probe.schemaVersion == AppPreferences.currentSchemaVersion else {
+            guard (1...AppPreferences.currentSchemaVersion).contains(
+                probe.schemaVersion
+            ) else {
                 return AppPreferencesLoadResult(
                     preferences: .default,
                     warning: "Unsupported app preference schema; using empty app settings."
                 )
             }
-            let preferences = try decoder.decode(AppPreferences.self, from: data)
+            let decoded = try decoder.decode(AppPreferences.self, from: data)
+            let preferences = probe.schemaVersion ==
+                AppPreferences.currentSchemaVersion ?
+                decoded : decoded.migratedToCurrentSchema()
             guard preferences.isValid else {
                 return AppPreferencesLoadResult(
                     preferences: .default,
                     warning: "Invalid app preferences; using empty app settings."
                 )
             }
-            return AppPreferencesLoadResult(preferences: preferences, warning: nil)
+            if probe.schemaVersion < AppPreferences.currentSchemaVersion {
+                try? save(preferences)
+            }
+            return AppPreferencesLoadResult(
+                preferences: preferences,
+                warning: nil
+            )
         } catch {
             return AppPreferencesLoadResult(
                 preferences: .default,

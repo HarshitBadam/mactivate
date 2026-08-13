@@ -1,4 +1,6 @@
+import AppKit
 import MactivateRuntime
+import SwiftUI
 import XCTest
 @testable import MactivateApp
 
@@ -17,6 +19,49 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertEqual(runtime.stopCount, 1)
     }
 
+    func testPanelLifecycleUsesNotchSurfaceAdapter() async throws {
+        let surface = FakeNotchSurface()
+        let controller = PanelController(surface: surface)
+        let screen = try XCTUnwrap(NSScreen.main)
+
+        controller.setRootView(AnyView(Text("Panel")))
+        controller.showInteractive(on: screen)
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(surface.setContentCount, 1)
+        XCTAssertEqual(surface.expandedCount, 1)
+        XCTAssertEqual(controller.mode, .interactive)
+
+        controller.dismiss()
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(surface.hideCount, 1)
+        XCTAssertEqual(controller.mode, .closed)
+    }
+
+    func testPassiveHintExpandsInOneSurfaceTransition() async throws {
+        guard NSScreen.screens.contains(where: {
+            $0.mactivateDescriptor?.isBuiltIn == true &&
+                $0.mactivateDescriptor?.hasNotch == true
+        }) else {
+            throw XCTSkip("requires a built-in notched display")
+        }
+        let surface = FakeNotchSurface()
+        let controller = PanelController(surface: surface)
+
+        controller.showPassiveHint()
+        for _ in 0..<6 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(surface.compactCount, 0)
+        XCTAssertEqual(surface.expandedCount, 1)
+        XCTAssertEqual(controller.mode, .passiveHint)
+        controller.dismiss()
+    }
+
     func testStatusOutputUpdatesObservableState() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
@@ -29,7 +74,7 @@ final class RuntimeBridgeTests: XCTestCase {
         runtime.outputHandler?(.statusChanged(snapshot))
 
         XCTAssertEqual(coordinator.state.snapshot, snapshot)
-        XCTAssertEqual(coordinator.state.tapStatus, "Palm taps ready · 796 Hz")
+        XCTAssertEqual(coordinator.state.tapStatus, "Sensor connected · 796 Hz")
         XCTAssertEqual(
             coordinator.state.panelHintStatus,
             "Hover unavailable in dim light"
@@ -94,6 +139,35 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertNotNil(coordinator.state.actionError)
     }
 
+    func testTapIntentForShowPanelExpandsNotchSurface() async {
+        let runtime = FakeRuntime()
+        let surface = FakeNotchSurface()
+        let panelController = PanelController(surface: surface)
+        let coordinator = makeCoordinator(
+            runtime: runtime,
+            panelController: panelController
+        )
+        let trigger = TapTrigger(
+            eventID: RuntimeEventID(
+                sessionID: UUID(),
+                classifierEventID: "show-panel"
+            ),
+            pattern: .single,
+            sensorTimestamp: 1
+        )
+
+        runtime.outputHandler?(.intent(.performAction(
+            id: AppActionDefinition.showPanel.id,
+            trigger: trigger
+        )))
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(surface.expandedCount, 1)
+        XCTAssertEqual(panelController.mode, .interactive)
+        panelController.dismiss()
+    }
+
     func testSetTapBindingUpdatesConfigurationOnSuccess() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
@@ -105,6 +179,24 @@ final class RuntimeBridgeTests: XCTestCase {
             "builtin.show-panel"
         )
         XCTAssertNil(coordinator.state.recentWarning)
+    }
+
+    func testPanelAssignmentsExcludeShowPanelButGesturesKeepIt() {
+        let coordinator = makeCoordinator(runtime: FakeRuntime())
+        XCTAssertTrue(
+            coordinator.addWebURL(
+                name: "Example",
+                value: "https://example.com"
+            )
+        )
+
+        XCTAssertTrue(coordinator.state.actions.contains(
+            AppActionDefinition.showPanel
+        ))
+        XCTAssertFalse(coordinator.state.panelAssignableActions.contains(
+            AppActionDefinition.showPanel
+        ))
+        XCTAssertEqual(coordinator.state.panelAssignableActions.count, 1)
     }
 
     func testSetTapBindingSurfacesRuntimeFailureAsWarning() {
@@ -120,12 +212,19 @@ final class RuntimeBridgeTests: XCTestCase {
     func testSetQuickActionPersistsIntoNormalizedSlot() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
+        XCTAssertTrue(
+            coordinator.addWebURL(
+                name: "Example",
+                value: "https://example.com"
+            )
+        )
+        let identifier = coordinator.state.preferences.actions[0].id
 
-        coordinator.setQuickAction(index: 1, identifier: "builtin.show-panel")
+        coordinator.setQuickAction(index: 1, identifier: identifier)
 
         XCTAssertEqual(
             coordinator.state.preferences.normalizedQuickActionIDs[1],
-            "builtin.show-panel"
+            identifier
         )
     }
 
@@ -238,7 +337,8 @@ final class RuntimeBridgeTests: XCTestCase {
 
     private func makeCoordinator(
         runtime: FakeRuntime,
-        launchAtLogin: TestLaunchAtLogin = TestLaunchAtLogin()
+        launchAtLogin: TestLaunchAtLogin = TestLaunchAtLogin(),
+        panelController: PanelController? = nil
     ) -> AppCoordinator {
         var preferences = AppPreferences.default
         preferences.onboardingCompleted = true
@@ -251,8 +351,34 @@ final class RuntimeBridgeTests: XCTestCase {
                 workspace: TestWorkspace(),
                 shortcuts: TestShortcuts()
             ),
-            launchAtLogin: launchAtLogin
+            launchAtLogin: launchAtLogin,
+            panelController: panelController
         )
+    }
+}
+
+@MainActor
+private final class FakeNotchSurface: NotchSurfaceControlling {
+    var window: NSWindow?
+    private(set) var setContentCount = 0
+    private(set) var compactCount = 0
+    private(set) var expandedCount = 0
+    private(set) var hideCount = 0
+
+    func setContent(_ content: AnyView) {
+        setContentCount += 1
+    }
+
+    func showCompact(on screen: NSScreen) async {
+        compactCount += 1
+    }
+
+    func showExpanded(on screen: NSScreen, interactive: Bool) async {
+        expandedCount += 1
+    }
+
+    func hide() async {
+        hideCount += 1
     }
 }
 
@@ -270,6 +396,8 @@ private final class FakeRuntime: RuntimeControlling {
     var outputHandler: ((RuntimeOutput) -> Void)?
     private var configuration = RuntimeConfiguration.default
     var currentSnapshot = RuntimeSnapshot()
+    var currentTapCalibrationProfile: RuntimeTapCalibrationProfile?
+    var tapCalibrationWarning: String?
     private(set) var configurationReadCount = 0
     var startCount = 0
     var stopCount = 0
@@ -302,6 +430,14 @@ private final class FakeRuntime: RuntimeControlling {
 
     func resetConfiguration() throws {
         configuration = .default
+    }
+
+    func applyTapCalibration(_ profile: RuntimeTapCalibrationProfile) throws {
+        currentTapCalibrationProfile = profile
+    }
+
+    func resetTapCalibration() throws {
+        currentTapCalibrationProfile = nil
     }
 }
 

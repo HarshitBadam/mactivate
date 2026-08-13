@@ -40,7 +40,7 @@ final class AppPreferencesStoreTests: XCTestCase {
         let (defaults, key) = makeDefaults()
         let future = Data(
             """
-            {"schemaVersion":2,"actions":[],"quickActionIDs":[],
+            {"schemaVersion":3,"actions":[],"quickActionIDs":[],
              "onboardingCompleted":true}
             """.utf8
         )
@@ -98,6 +98,34 @@ final class AppPreferencesStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(AppPreferences(actions: [collision]).isValid)
+    }
+
+    func testVersionOneMigrationPreservesActionsAndClearsCircularPanelSlot() throws {
+        let (defaults, key) = makeDefaults()
+        let action = AppActionDefinition.shortcut(name: "Focus")
+        let legacy = AppPreferences(
+            schemaVersion: 1,
+            actions: [action],
+            quickActionIDs: [AppActionDefinition.showPanel.id, action.id],
+            onboardingCompleted: true
+        )
+        defaults.set(try JSONEncoder().encode(legacy), forKey: key)
+        let store = UserDefaultsAppPreferencesStore(
+            defaults: defaults,
+            key: key
+        )
+
+        let result = store.load()
+
+        XCTAssertNil(result.warning)
+        XCTAssertEqual(result.preferences.schemaVersion, 2)
+        XCTAssertEqual(result.preferences.actions, [action])
+        XCTAssertNil(result.preferences.normalizedQuickActionIDs[0])
+        XCTAssertEqual(
+            result.preferences.normalizedQuickActionIDs[1],
+            action.id
+        )
+        XCTAssertTrue(result.preferences.onboardingCompleted)
     }
 
     func testPendingLoginApprovalStillCountsAsRegistered() {

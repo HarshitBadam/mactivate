@@ -1,4 +1,5 @@
 import AppKit
+import DynamicNotchKit
 import SwiftUI
 
 enum PanelPresentationMode: Equatable {
@@ -7,30 +8,108 @@ enum PanelPresentationMode: Equatable {
     case interactive
 }
 
-final class PanelWindow: NSPanel {
-    var onCancel: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func cancelOperation(_ sender: Any?) {
-        onCancel?()
-    }
+@MainActor
+protocol NotchSurfaceControlling: AnyObject {
+    var window: NSWindow? { get }
+    func setContent(_ content: AnyView)
+    func showCompact(on screen: NSScreen) async
+    func showExpanded(on screen: NSScreen, interactive: Bool) async
+    func hide() async
 }
 
-private final class FirstMouseHostingView: NSHostingView<AnyView> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+/// Keeps the package API isolated from the rest of the application.
+@MainActor
+final class NotchSurfaceController: NotchSurfaceControlling {
+    private typealias Surface = DynamicNotch<AnyView, AnyView, AnyView>
+    private var surface: Surface?
+
+    var window: NSWindow? { surface?.windowController?.window }
+
+    func setContent(_ content: AnyView) {
+        let compactLeading = AnyView(
+            Image(systemName: "hand.tap.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+        )
+        let compactTrailing = AnyView(EmptyView())
+        let surface = Surface(
+            hoverBehavior: [.keepVisible, .hapticFeedback, .increaseShadow],
+            style: .auto,
+            expanded: { content },
+            compactLeading: { compactLeading },
+            compactTrailing: { compactTrailing }
+        )
+        surface.transitionConfiguration = transitionConfiguration
+        self.surface = surface
+    }
+
+    func showCompact(on screen: NSScreen) async {
+        guard let surface else { return }
+        surface.transitionConfiguration = transitionConfiguration
+        let presentation = Task { await surface.compact(on: screen) }
+        await Task.yield()
+        configureWindow(interactive: false)
+        await presentation.value
+        configureWindow(interactive: false)
+    }
+
+    func showExpanded(on screen: NSScreen, interactive: Bool) async {
+        guard let surface else { return }
+        surface.transitionConfiguration = transitionConfiguration
+        let presentation = Task { await surface.expand(on: screen) }
+        await Task.yield()
+        configureWindow(interactive: interactive)
+        await presentation.value
+        configureWindow(interactive: interactive)
+    }
+
+    func hide() async {
+        await surface?.hide()
+    }
+
+    private var transitionConfiguration: DynamicNotchTransitionConfiguration {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            return DynamicNotchTransitionConfiguration(
+                openingAnimation: .linear(duration: 0.01),
+                closingAnimation: .linear(duration: 0.01),
+                conversionAnimation: .linear(duration: 0.01),
+                skipIntermediateHides: true
+            )
+        }
+        return DynamicNotchTransitionConfiguration(
+            openingAnimation: .spring(duration: 0.38, bounce: 0.26),
+            closingAnimation: .smooth(duration: 0.24),
+            conversionAnimation: .spring(duration: 0.34, bounce: 0.22),
+            skipIntermediateHides: true
+        )
+    }
+
+    private func configureWindow(interactive: Bool) {
+        guard let window else { return }
+        window.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .stationary,
+            .ignoresCycle
+        ]
+        window.level = .screenSaver
+        window.hidesOnDeactivate = false
+        if interactive {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderFrontRegardless()
+        }
     }
 }
 
 @MainActor
 final class PanelController {
-    private let panelSize = CGSize(width: 388, height: 292)
+    private let panelSize = CGSize(width: 388, height: 276)
     private let passiveDuration: TimeInterval = 4
     private let ambientCooldown: TimeInterval = 3
-    private let panel: PanelWindow
-    private let hostingView: FirstMouseHostingView
+    private let surface: any NotchSurfaceControlling
+
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var passiveDismissWorkItem: DispatchWorkItem?
@@ -39,37 +118,14 @@ final class PanelController {
     private var ambientNotBefore = Date.distantPast
     private var openedFromAmbient = false
     private var targetDisplayID: CGDirectDisplayID?
+    private var targetDescriptor: ScreenDescriptor?
     private var presentationGeneration: UInt64 = 0
+    private var transitionTask: Task<Void, Never>?
 
     private(set) var mode: PanelPresentationMode = .closed
 
-    init() {
-        panel = PanelWindow(
-            contentRect: CGRect(origin: .zero, size: panelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: true
-        )
-        hostingView = FirstMouseHostingView(rootView: AnyView(EmptyView()))
-
-        panel.contentView = hostingView
-        panel.level = .statusBar
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .transient,
-            .ignoresCycle
-        ]
-        panel.isFloatingPanel = true
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.isReleasedWhenClosed = false
-        panel.animationBehavior = .none
-        panel.onCancel = { [weak self] in self?.dismiss() }
-
+    init(surface: (any NotchSurfaceControlling)? = nil) {
+        self.surface = surface ?? NotchSurfaceController()
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -92,6 +148,7 @@ final class PanelController {
     }
 
     deinit {
+        transitionTask?.cancel()
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
@@ -107,85 +164,58 @@ final class PanelController {
     }
 
     func setRootView(_ view: AnyView) {
-        hostingView.rootView = view
+        surface.setContent(view)
     }
 
     func showPassiveHint() {
         guard Date() >= ambientNotBefore else { return }
         guard let screen = NSScreen.screens.first(where: {
-            $0.mactivateDescriptor?.isBuiltIn == true
+            $0.mactivateDescriptor?.isBuiltIn == true &&
+                $0.mactivateDescriptor?.hasNotch == true
         }) else {
             return
         }
-        if mode != .closed {
+        if mode == .passiveHint {
             schedulePassiveDismissIfNeeded()
             return
         }
+        if mode == .interactive { return }
         present(on: screen, as: .passiveHint)
     }
 
     func showInteractive(on screen: NSScreen? = nil) {
         passiveDismissWorkItem?.cancel()
         passiveDismissWorkItem = nil
-
-        if mode == .passiveHint {
-            mode = .interactive
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-            return
-        }
-
         let target = screen ?? screenUnderPointer() ?? NSScreen.main
         guard let target else { return }
         if mode == .interactive {
             NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-        } else {
-            present(on: target, as: .interactive)
+            surface.window?.makeKeyAndOrderFront(nil)
+            return
         }
+        present(on: target, as: .interactive)
     }
 
     func toggleInteractive(on screen: NSScreen? = nil) {
-        if mode == .interactive {
-            dismiss()
-        } else {
-            showInteractive(on: screen)
-        }
+        mode == .interactive ? dismiss() : showInteractive(on: screen)
     }
 
     func dismiss() {
         guard mode != .closed else { return }
         presentationGeneration &+= 1
-        let dismissGeneration = presentationGeneration
+        transitionTask?.cancel()
         if openedFromAmbient {
             ambientNotBefore = Date().addingTimeInterval(ambientCooldown)
         }
         mode = .closed
         openedFromAmbient = false
         targetDisplayID = nil
+        targetDescriptor = nil
         passiveDismissWorkItem?.cancel()
         passiveDismissWorkItem = nil
         removeEventMonitors()
-
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if reduceMotion {
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.mode == .closed,
-                      self.presentationGeneration == dismissGeneration else {
-                    return
-                }
-                self.panel.orderOut(nil)
-                self.panel.alphaValue = 1
-            }
+        transitionTask = Task { [surface] in
+            await surface.hide()
         }
     }
 
@@ -193,51 +223,38 @@ final class PanelController {
         dismiss()
     }
 
-    private func present(on screen: NSScreen, as newMode: PanelPresentationMode) {
+    private func present(
+        on screen: NSScreen,
+        as newMode: PanelPresentationMode
+    ) {
         guard let descriptor = screen.mactivateDescriptor else { return }
         presentationGeneration &+= 1
+        let generation = presentationGeneration
+        transitionTask?.cancel()
         targetDisplayID = descriptor.displayID
+        targetDescriptor = descriptor
         mode = newMode
         openedFromAmbient = newMode == .passiveHint
-        let finalFrame = NotchGeometry.panelFrame(
-            on: descriptor,
-            panelSize: panelSize
-        )
-        panel.setFrame(finalFrame, display: true)
         installEventMonitors()
 
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if reduceMotion {
-            panel.alphaValue = 1
-            orderPanel(for: newMode)
-        } else {
-            var startFrame = finalFrame
-            startFrame.origin.y += 8
-            panel.setFrame(startFrame, display: false)
-            panel.alphaValue = 0
-            orderPanel(for: newMode)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                context.timingFunction = CAMediaTimingFunction(
-                    name: .easeOut
-                )
-                panel.animator().setFrame(finalFrame, display: true)
-                panel.animator().alphaValue = 1
+        if newMode == .interactive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        transitionTask = Task { [weak self, surface] in
+            switch newMode {
+            case .closed:
+                return
+            case .passiveHint:
+                await surface.showExpanded(on: screen, interactive: false)
+            case .interactive:
+                await surface.showExpanded(on: screen, interactive: true)
+            }
+            guard !Task.isCancelled,
+                  self?.presentationGeneration == generation else {
+                return
             }
         }
         schedulePassiveDismissIfNeeded()
-    }
-
-    private func orderPanel(for mode: PanelPresentationMode) {
-        switch mode {
-        case .closed:
-            break
-        case .passiveHint:
-            panel.orderFrontRegardless()
-        case .interactive:
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-        }
     }
 
     private func schedulePassiveDismissIfNeeded() {
@@ -264,15 +281,11 @@ final class PanelController {
                 self.dismiss()
                 return nil
             }
-            if event.window === self.panel {
+            if event.window === self.surface.window {
                 if self.mode == .passiveHint {
-                    self.mode = .interactive
-                    self.passiveDismissWorkItem?.cancel()
-                    self.passiveDismissWorkItem = nil
-                    NSApp.activate(ignoringOtherApps: true)
-                    self.panel.makeKey()
+                    self.showInteractive(on: self.screenForTargetDisplay())
                 }
-            } else if event.window?.level != .statusBar {
+            } else if event.window?.level != .screenSaver {
                 self.dismiss()
             }
             return event
@@ -280,12 +293,18 @@ final class PanelController {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            guard let self,
-                  self.mode != .closed,
-                  !self.panel.frame.contains(NSEvent.mouseLocation) else {
+            guard let self, self.mode != .closed else { return }
+            guard let descriptor = self.targetDescriptor else {
+                self.dismiss()
                 return
             }
-            self.dismiss()
+            let interactiveFrame = NotchGeometry.panelFrame(
+                on: descriptor,
+                panelSize: self.panelSize
+            )
+            if !interactiveFrame.contains(NSEvent.mouseLocation) {
+                self.dismiss()
+            }
         }
     }
 
@@ -302,19 +321,17 @@ final class PanelController {
 
     private func screenConfigurationChanged() {
         guard mode != .closed,
-              let targetDisplayID,
-              let screen = NSScreen.screens.first(where: {
-                  $0.mactivateDescriptor?.displayID == targetDisplayID
-              }),
-              let descriptor = screen.mactivateDescriptor else {
+              screenForTargetDisplay() != nil else {
             dismiss()
             return
         }
-        panel.setFrame(
-            NotchGeometry.panelFrame(on: descriptor, panelSize: panelSize),
-            display: true,
-            animate: false
-        )
+    }
+
+    private func screenForTargetDisplay() -> NSScreen? {
+        guard let targetDisplayID else { return nil }
+        return NSScreen.screens.first {
+            $0.mactivateDescriptor?.displayID == targetDisplayID
+        }
     }
 
     private func screenUnderPointer() -> NSScreen? {
