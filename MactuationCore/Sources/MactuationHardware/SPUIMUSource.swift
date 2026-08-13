@@ -60,6 +60,7 @@ public final class SPUIMUSource: SensorSource {
 
     private let lifecycleLock = NSLock()
     private let statisticsLock = NSLock()
+    private let startupReportInterval: Int?
     private let registryServices: [SensorPath: SPURegistryService]
     private let deviceServices: [SensorPath: SPURegistryService]
     private var channels: [IMUChannel] = []
@@ -85,7 +86,13 @@ public final class SPUIMUSource: SensorSource {
     private var _wakePropertiesSet: [String] = []
     private var _reportIntervalUsed: Int?
 
-    public init(includeGyroscope: Bool) throws {
+    public init(includeGyroscope: Bool,
+                startupReportInterval: Int? = nil) throws {
+        if let startupReportInterval, startupReportInterval <= 0 {
+            throw HardwareError.invalidConfiguration(
+                "startup report interval must be a positive number of microseconds"
+            )
+        }
         var requested: [SensorPath] = [.spuAccelerometer]
         if includeGyroscope { requested.append(.spuGyroscope) }
         let discovered = try SPURegistry.discover()
@@ -105,6 +112,7 @@ public final class SPUIMUSource: SensorSource {
             drivers[path] = driver
             devices[path] = device
         }
+        self.startupReportInterval = startupReportInterval
         paths = requested
         registryServices = drivers
         deviceServices = devices
@@ -124,16 +132,25 @@ public final class SPUIMUSource: SensorSource {
             resetStatistics()
 
             let thread = Thread { [weak self, handshake] in
+                let runLoop = CFRunLoopGetCurrent()
                 do {
-                    guard let runLoop = CFRunLoopGetCurrent() else {
+                    guard let runLoop else {
                         throw HardwareError.registry("could not create IMU worker RunLoop")
                     }
                     guard let source = self else {
                         throw HardwareError.registry("IMU source was released during startup")
                     }
                     try source.prepareWorker(on: runLoop)
+                    if let interval = source.startupReportInterval {
+                        try source.applyWakeSequenceOnWorker(
+                            reportInterval: interval
+                        )
+                    }
                     handshake.result = .success(())
                 } catch {
+                    if let runLoop, let source = self {
+                        source.cleanupStartupFailure(on: runLoop)
+                    }
                     handshake.result = .failure(error)
                 }
                 handshake.semaphore.signal()
@@ -211,52 +228,7 @@ public final class SPUIMUSource: SensorSource {
             )
         }
         try performOnWorker {
-            guard self.totalReportCount == 0 else { return }
-            self.statisticsLock.withLock { self._wakeRequired = true }
-
-            let desired: [(String, AnyObject)] = [
-                ("SensorPropertyReportingState", NSNumber(value: Int32(1))),
-                ("SensorPropertyPowerState", NSNumber(value: Int32(1))),
-                ("ReportInterval", NSNumber(value: Int32(reportInterval)))
-            ]
-
-            for path in self.paths {
-                guard let service = self.registryServices[path] else { continue }
-                var snapshots: [String: AnyObject] = [:]
-                for (key, _) in desired {
-                    if let value = service.property(key) {
-                        snapshots[key] = value
-                    } else if key == "ReportInterval" {
-                        self.restoreProperties()
-                        throw HardwareError.wakeFailed(
-                            "\(path.rawValue) has no readable pre-existing ReportInterval"
-                        )
-                    } else {
-                        snapshots[key] = NSNumber(value: Int32(0))
-                    }
-                }
-                self.savedProperties[path] = snapshots
-
-                for (key, value) in desired {
-                    let result = service.setProperty(key, value: value)
-                    guard result == KERN_SUCCESS else {
-                        self.restoreProperties()
-                        throw HardwareError.propertySetFailed(
-                            path: path, key: key, result: result
-                        )
-                    }
-                    self.changedProperties[path, default: []].append(key)
-                    self.writtenProperties[path, default: [:]][key] = value
-                    self.statisticsLock.withLock {
-                        if !self._wakePropertiesSet.contains(key) {
-                            self._wakePropertiesSet.append(key)
-                        }
-                    }
-                }
-            }
-            self.statisticsLock.withLock {
-                self._reportIntervalUsed = reportInterval
-            }
+            try self.applyWakeSequenceOnWorker(reportInterval: reportInterval)
         }
     }
 
@@ -427,6 +399,60 @@ public final class SPUIMUSource: SensorSource {
             eventHandler = nil
             workerRunLoop = nil
             workerThread = nil
+        }
+    }
+
+    private func cleanupStartupFailure(on runLoop: CFRunLoop) {
+        closeDevices(on: runLoop)
+        restoreProperties()
+    }
+
+    private func applyWakeSequenceOnWorker(reportInterval: Int) throws {
+        guard totalReportCount == 0 else { return }
+        statisticsLock.withLock { _wakeRequired = true }
+
+        let desired: [(String, AnyObject)] = [
+            ("SensorPropertyReportingState", NSNumber(value: Int32(1))),
+            ("SensorPropertyPowerState", NSNumber(value: Int32(1))),
+            ("ReportInterval", NSNumber(value: Int32(reportInterval)))
+        ]
+
+        for path in paths {
+            guard let service = registryServices[path] else { continue }
+            var snapshots: [String: AnyObject] = [:]
+            for (key, _) in desired {
+                if let value = service.property(key) {
+                    snapshots[key] = value
+                } else if key == "ReportInterval" {
+                    restoreProperties()
+                    throw HardwareError.wakeFailed(
+                        "\(path.rawValue) has no readable pre-existing ReportInterval"
+                    )
+                } else {
+                    snapshots[key] = NSNumber(value: Int32(0))
+                }
+            }
+            savedProperties[path] = snapshots
+
+            for (key, value) in desired {
+                let result = service.setProperty(key, value: value)
+                guard result == KERN_SUCCESS else {
+                    restoreProperties()
+                    throw HardwareError.propertySetFailed(
+                        path: path, key: key, result: result
+                    )
+                }
+                changedProperties[path, default: []].append(key)
+                writtenProperties[path, default: [:]][key] = value
+                statisticsLock.withLock {
+                    if !_wakePropertiesSet.contains(key) {
+                        _wakePropertiesSet.append(key)
+                    }
+                }
+            }
+        }
+        statisticsLock.withLock {
+            _reportIntervalUsed = reportInterval
         }
     }
 

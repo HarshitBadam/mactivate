@@ -22,6 +22,22 @@ final class HardwareContractTests: XCTestCase {
         }
     }
 
+    func testInvalidIMUStartupRateFailsBeforeHardwareLookup() {
+        XCTAssertThrowsError(
+            try SPUIMUSource(
+                includeGyroscope: false,
+                startupReportInterval: 0
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? HardwareError,
+                .invalidConfiguration(
+                    "startup report interval must be a positive number of microseconds"
+                )
+            )
+        }
+    }
+
     func testSnapshotReturnsUnknownForUnmeasuredPath() {
         let snapshot = SPUHardwareSnapshot(
             services: [],
