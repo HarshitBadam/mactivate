@@ -15,9 +15,9 @@ The hover trigger is best-effort. It may be limited by lighting conditions, but 
 
 ## Current status
 
-The reusable sensor engine and product runtime are implemented. The sensor layer provides macOS SPU/ALS acquisition, safe property restoration, deterministic capture/replay, bounded-live palm-tap classification, and a best-effort ALS panel-open hint. `MactivateRuntime` starts the two sensor paths independently, maps accepted tap counts to persisted opaque action identifiers, emits action/panel intents, reports partial availability, and recreates sources safely across sleep and wake.
+The complete MVP stack is implemented. The sensor layer provides macOS SPU/ALS acquisition, safe property restoration, deterministic capture/replay, bounded-live palm-tap classification, and a best-effort ALS panel-open hint. `MactivateRuntime` starts the two sensor paths independently, maps accepted tap counts to persisted opaque action identifiers, emits action/panel intents, reports partial availability, and recreates sources safely across sleep and wake.
 
-The runtime deliberately does not execute actions or render UI. The macOS app host, notch panel, menu-bar fallback, quick-action controls, and concrete action execution are the remaining product work.
+`MactivateApp` is the native menu-bar host. It presents one notch-attached or top-center fallback panel from either an ambient-light hint or the reliable status icon, exposes four configurable quick-action slots and single/double/triple mappings, and resolves only a deliberately safe action set: show the panel, open an application, open an HTTP(S) URL, or run a macOS Shortcut. Settings, first-run onboarding, diagnostics, accessibility behavior, and launch at login are included.
 
 Validated on a **Mac14,2 MacBook Air M2 running macOS 26.2**:
 
@@ -34,6 +34,7 @@ Detailed measurements are in the [Mac14,2 probe results](docs/probe-results/2026
 
 - `[MactuationCore](MactuationCore/)` — one Swift package containing the hardware-independent `MactuationCore` product and reusable macOS `MactuationHardware` product. Core owns models, source lifecycle events, capture/replay, deterministic classifiers, and committed regression fixtures; Hardware owns IOKit acquisition.
 - `[MactivateRuntime](MactivateRuntime/)` — product-specific, intent-only runtime composition, persisted tap bindings, partial feature state, deduplication, and sleep/wake lifecycle handling.
+- `[MactivateApp](MactivateApp/)` — AppKit/SwiftUI menu-bar app, notch/floating panel, settings and onboarding, safe action catalog, launch-at-login integration, and app-layer tests.
 - `[MactuationProbe](MactuationProbe/)` — thin macOS CLI for machine identification, hardware discovery, capture, raw ALS observation, live tap diagnostics, and panel-hint diagnostics.
 - `[scripts](scripts/)` — offline IMU analysis, rule scoring, and daemon-context diagnostics.
 - `[docs/research](docs/research/)` — prior art, sensor landscape, and recorded gesture experiments.
@@ -75,7 +76,13 @@ Commercial qualification, broad model support, perfect detection in every enviro
 swift test --package-path MactuationCore
 swift test --package-path MactivateRuntime
 swift build --package-path MactuationProbe
+xcodebuild -project MactivateApp/MactivateApp.xcodeproj \
+  -scheme MactivateApp -destination 'platform=macOS' test
 ```
+
+Run the app from Xcode with the shared `MactivateApp` scheme. The target is an
+`LSUIElement` menu-bar agent, so the hand icon—not a Dock tile—is the dependable
+manual entry point.
 
 Probe commands:
 
@@ -91,11 +98,10 @@ MactuationProbe/.build/debug/mactuation-probe imu-capture --label test --rate-hz
 
 ## Next
 
-1. Build the menu-bar app and notch-attached panel.
-2. Wire runtime snapshots and intents into that app without moving action execution into the runtime package.
-3. Add the reliable menu-bar/app-icon fallback before relying on the lighting-sensitive panel hint.
-4. Resolve opaque action identifiers into a few safe quick actions and expose binding controls.
-5. Add onboarding and launch-at-login, then qualify the complete experience.
+1. Complete repeated daily-use qualification on Mac14,2 across bright/dim rooms, Spaces, fullscreen, external displays, and sleep/wake.
+2. Add a polished application icon and capture final README screenshots.
+3. Decide whether friend distribution warrants Developer ID signing, notarization, and a DMG; these are intentionally outside the MVP.
+4. Collect evidence on additional Mac models before claiming broader compatibility.
 
 
 

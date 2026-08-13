@@ -27,7 +27,9 @@ All deterministic tests run without sensor access. Hardware access remains a gui
 - `SPUHardwareInspector` provides discovery and measured capability state without exposing registry handles.
 - Report decoding, invalid configuration, source lifecycle, and restoration behavior fail explicitly rather than being silently discarded.
 
-`MactuationProbe` consumes both products. The future app-facing coordinator, notch UI, mappings, and action dispatch intentionally remain outside this package until the app provides a real consumer.
+`MactuationProbe` consumes both products. `MactivateRuntime` composes them into
+product intents, and `MactivateApp` owns the notch UI and safe action dispatch.
+Those product-specific layers intentionally remain outside this reusable package.
 
 ## Building and testing
 
