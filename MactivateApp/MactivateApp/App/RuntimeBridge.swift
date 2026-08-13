@@ -16,6 +16,10 @@ protocol RuntimeControlling: AnyObject {
 final class RuntimeBridge: RuntimeControlling {
     var outputHandler: ((RuntimeOutput) -> Void)?
 
+    private let lifecycleQueue = DispatchQueue(
+        label: "com.mactivate.runtime-bridge.lifecycle",
+        qos: .utility
+    )
     private var controller: MactivateRuntimeController?
 
     init() throws {
@@ -25,31 +29,45 @@ final class RuntimeBridge: RuntimeControlling {
     }
 
     var currentConfiguration: RuntimeConfiguration {
-        controller?.currentConfiguration ?? .failClosed
+        lifecycleQueue.sync {
+            controller?.currentConfiguration ?? .failClosed
+        }
     }
 
     var currentSnapshot: RuntimeSnapshot {
-        controller?.currentSnapshot ?? RuntimeSnapshot()
+        lifecycleQueue.sync {
+            controller?.currentSnapshot ?? RuntimeSnapshot()
+        }
     }
 
     func start() {
-        controller?.start()
+        lifecycleQueue.async(qos: .utility, flags: .enforceQoS) { [controller] in
+            controller?.start()
+        }
     }
 
     func stop() {
-        controller?.stop()
+        lifecycleQueue.sync {
+            controller?.stop()
+        }
     }
 
     func setTapBinding(_ action: ActionIdentifier?,
                        for pattern: TapPattern) throws {
-        try controller?.setTapBinding(action, for: pattern)
+        try lifecycleQueue.sync {
+            try controller?.setTapBinding(action, for: pattern)
+        }
     }
 
     func setPanelHintsEnabled(_ enabled: Bool) throws {
-        try controller?.setPanelHintsEnabled(enabled)
+        try lifecycleQueue.sync {
+            try controller?.setPanelHintsEnabled(enabled)
+        }
     }
 
     func resetConfiguration() throws {
-        try controller?.resetConfiguration()
+        try lifecycleQueue.sync {
+            try controller?.resetConfiguration()
+        }
     }
 }

@@ -36,6 +36,20 @@ final class RuntimeBridgeTests: XCTestCase {
         )
     }
 
+    func testStatusOutputDoesNotSynchronouslyReadRuntimeConfiguration() {
+        let runtime = FakeRuntime()
+        _ = makeCoordinator(runtime: runtime)
+        let readsAfterInitialization = runtime.configurationReadCount
+
+        runtime.outputHandler?(.statusChanged(RuntimeSnapshot(
+            lifecycle: .starting,
+            tap: .warmingUp,
+            panelHint: .disabled
+        )))
+
+        XCTAssertEqual(runtime.configurationReadCount, readsAfterInitialization)
+    }
+
     func testWarningOutputIsVisible() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
@@ -254,11 +268,17 @@ private struct TestFailure: Error, LocalizedError {
 
 private final class FakeRuntime: RuntimeControlling {
     var outputHandler: ((RuntimeOutput) -> Void)?
-    var currentConfiguration = RuntimeConfiguration.default
+    private var configuration = RuntimeConfiguration.default
     var currentSnapshot = RuntimeSnapshot()
+    private(set) var configurationReadCount = 0
     var startCount = 0
     var stopCount = 0
     var setTapBindingError: Error?
+
+    var currentConfiguration: RuntimeConfiguration {
+        configurationReadCount += 1
+        return configuration
+    }
 
     func start() {
         startCount += 1
@@ -273,15 +293,15 @@ private final class FakeRuntime: RuntimeControlling {
         if let setTapBindingError {
             throw setTapBindingError
         }
-        currentConfiguration.tapBindings[pattern] = action
+        configuration.tapBindings[pattern] = action
     }
 
     func setPanelHintsEnabled(_ enabled: Bool) throws {
-        currentConfiguration.panelHintsEnabled = enabled
+        configuration.panelHintsEnabled = enabled
     }
 
     func resetConfiguration() throws {
-        currentConfiguration = .default
+        configuration = .default
     }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import MactivateRuntime
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -7,6 +8,10 @@ import UniformTypeIdentifiers
 final class AppCoordinator {
     let state: AppState
 
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.mactivate.app",
+        category: "runtime"
+    )
     private let runtime: RuntimeControlling
     private let preferencesStore: AppPreferencesStoring
     private let executor: ActionExecutor
@@ -110,6 +115,9 @@ final class AppCoordinator {
     private func handle(_ output: RuntimeOutput) {
         switch output {
         case .statusChanged(let snapshot):
+            logger.notice(
+                "Runtime state changed to \(String(describing: snapshot.lifecycle), privacy: .public)"
+            )
             state.snapshot = snapshot
             if snapshot.lifecycle == .suspended {
                 panelController.closeForSleep()
@@ -123,11 +131,14 @@ final class AppCoordinator {
             }
             perform(action, invocation: .tap(trigger))
         case .warning(.configuration(let message)):
+            logger.error(
+                "Configuration warning: \(message, privacy: .public)"
+            )
             state.recentWarning = message
         case .warning(.source(_, let message)):
+            logger.error("Sensor warning: \(message, privacy: .public)")
             state.recentWarning = message
         }
-        state.configuration = runtime.currentConfiguration
         refreshStatusItem()
     }
 

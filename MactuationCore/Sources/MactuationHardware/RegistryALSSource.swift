@@ -8,7 +8,10 @@ public final class RegistryALSSource: SensorSource {
     private let service: SPURegistryService
     private let pollHz: Double
     private let reportIntervalOverride: Int?
-    private let queue = DispatchQueue(label: "com.mactivate.registry-als")
+    private let queue = DispatchQueue(
+        label: "com.mactivate.registry-als",
+        qos: .utility
+    )
     private let queueKey = DispatchSpecificKey<Void>()
     private let lock = NSLock()
     private var savedReportInterval: NSNumber?

@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 @main
 enum MactivateApplication {
@@ -15,20 +16,31 @@ enum MactivateApplication {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.mactivate.app",
+        category: "launch"
+    )
     private var coordinator: AppCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        logger.notice("Application finished launching")
         guard ProcessInfo.processInfo.environment[
             "XCTestConfigurationFilePath"
         ] == nil else {
+            logger.debug("Skipping app UI in the XCTest host")
             return
         }
 
         do {
             let coordinator = try AppCoordinator()
             self.coordinator = coordinator
+            logger.notice("Coordinator and menu-bar item created")
             coordinator.start()
+            logger.notice("Runtime startup requested")
         } catch {
+            logger.fault(
+                "Fatal startup error: \(error.localizedDescription, privacy: .public)"
+            )
             presentFatalStartupError(error)
         }
     }

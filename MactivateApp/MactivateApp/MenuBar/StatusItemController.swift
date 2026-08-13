@@ -1,5 +1,6 @@
 import AppKit
 import MactivateRuntime
+import OSLog
 
 struct StatusItemActions {
     let togglePanel: (NSScreen?) -> Void
@@ -12,6 +13,10 @@ struct StatusItemActions {
 
 @MainActor
 final class StatusItemController: NSObject {
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.mactivate.app",
+        category: "status-item"
+    )
     private let statusItem: NSStatusItem
     private let actions: StatusItemActions
     private var snapshot = RuntimeSnapshot()
@@ -23,18 +28,26 @@ final class StatusItemController: NSObject {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button else {
+            logger.fault("macOS did not provide a status-item button")
+            return
+        }
         let image = NSImage(
             systemSymbolName: "hand.tap",
             accessibilityDescription: "Mactivate"
         )
         image?.isTemplate = true
         button.image = image
+        if image == nil {
+            logger.error("The hand.tap symbol is unavailable; using a text fallback")
+            button.title = "M"
+        }
         button.toolTip = "Mactivate"
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.setAccessibilityLabel("Mactivate menu")
+        logger.notice("Menu-bar item installed")
     }
 
     deinit {

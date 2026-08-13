@@ -29,7 +29,28 @@ private final class IMUChannel {
 
 private final class StartHandshake {
     let semaphore = DispatchSemaphore(value: 0)
-    var result: Result<Void, Error>?
+    private let lock = NSLock()
+    private var storedResult: Result<Void, Error>?
+    private var cancelled = false
+
+    @discardableResult
+    func complete(_ result: Result<Void, Error>) -> Bool {
+        let accepted = lock.withLock {
+            guard !cancelled else { return false }
+            storedResult = result
+            return true
+        }
+        if accepted { semaphore.signal() }
+        return accepted
+    }
+
+    func cancel() {
+        lock.withLock { cancelled = true }
+    }
+
+    var result: Result<Void, Error>? {
+        lock.withLock { storedResult }
+    }
 }
 
 private final class ResultBox<Value> {
@@ -58,6 +79,10 @@ private func imuInputReportCallback(
 public final class SPUIMUSource: SensorSource {
     public let paths: [SensorPath]
 
+    private static let startupTimeout: DispatchTimeInterval = .seconds(10)
+    private static let workerRequestTimeout: DispatchTimeInterval = .seconds(2)
+
+    private let operationLock = NSLock()
     private let lifecycleLock = NSLock()
     private let statisticsLock = NSLock()
     private let startupReportInterval: Int?
@@ -67,6 +92,7 @@ public final class SPUIMUSource: SensorSource {
     private var eventHandler: ((SensorSourceEvent) -> Void)?
     private var workerThread: Thread?
     private var workerRunLoop: CFRunLoop?
+    private var workerExitSemaphore: DispatchSemaphore?
     private var running = false
     private var startUptime: TimeInterval = 0
 
@@ -123,15 +149,22 @@ public final class SPUIMUSource: SensorSource {
     }
 
     public func start(handler: @escaping (SensorSourceEvent) -> Void) throws {
+        operationLock.lock()
+        defer { operationLock.unlock() }
+
         let handshake = StartHandshake()
+        let workerExit = DispatchSemaphore(value: 0)
         let thread: Thread = try lifecycleLock.withLock {
-            guard !running else { throw SensorSourceError.alreadyStarted }
+            guard !running, workerThread == nil else {
+                throw SensorSourceError.alreadyStarted
+            }
             running = true
             eventHandler = handler
             startUptime = ProcessInfo.processInfo.systemUptime
             resetStatistics()
 
-            let thread = Thread { [weak self, handshake] in
+            let thread = Thread { [weak self, handshake, workerExit] in
+                defer { workerExit.signal() }
                 let runLoop = CFRunLoopGetCurrent()
                 do {
                     guard let runLoop else {
@@ -146,14 +179,18 @@ public final class SPUIMUSource: SensorSource {
                             reportInterval: interval
                         )
                     }
-                    handshake.result = .success(())
+                    guard handshake.complete(.success(())) else {
+                        source.cleanupStartupFailure(on: runLoop)
+                        source.clearWorkerState()
+                        return
+                    }
                 } catch {
                     if let runLoop, let source = self {
                         source.cleanupStartupFailure(on: runLoop)
+                        source.clearWorkerState()
                     }
-                    handshake.result = .failure(error)
+                    _ = handshake.complete(.failure(error))
                 }
-                handshake.semaphore.signal()
 
                 guard case .success? = handshake.result else { return }
                 CFRunLoopRun()
@@ -162,12 +199,25 @@ public final class SPUIMUSource: SensorSource {
                 }
             }
             thread.name = "com.mactivate.spu-imu-runloop"
+            thread.qualityOfService = .utility
             workerThread = thread
+            workerExitSemaphore = workerExit
             return thread
         }
 
         thread.start()
-        handshake.semaphore.wait()
+        guard handshake.semaphore.wait(
+            timeout: .now() + Self.startupTimeout
+        ) == .success else {
+            handshake.cancel()
+            lifecycleLock.withLock {
+                running = false
+                eventHandler = nil
+            }
+            throw HardwareError.registry(
+                "timed out waiting for the IMU worker to start"
+            )
+        }
         guard let result = handshake.result else {
             throw HardwareError.registry("IMU worker did not report startup state")
         }
@@ -179,32 +229,38 @@ public final class SPUIMUSource: SensorSource {
                 eventHandler = nil
                 workerThread = nil
                 workerRunLoop = nil
+                workerExitSemaphore = nil
             }
             throw error
         }
     }
 
     public func stop() {
-        let state: (CFRunLoop, Thread, (SensorSourceEvent) -> Void)? =
+        operationLock.lock()
+        defer { operationLock.unlock() }
+
+        let state: (
+            CFRunLoop,
+            Thread,
+            DispatchSemaphore,
+            (SensorSourceEvent) -> Void
+        )? =
             lifecycleLock.withLock {
                 guard running, let runLoop = workerRunLoop,
-                      let thread = workerThread, let handler = eventHandler else {
+                      let thread = workerThread,
+                      let workerExitSemaphore,
+                      let handler = eventHandler else {
                     return nil
                 }
                 running = false
-                return (runLoop, thread, handler)
+                return (runLoop, thread, workerExitSemaphore, handler)
             }
-        guard let (runLoop, thread, handler) = state else { return }
+        guard let (runLoop, thread, workerExit, handler) = state else { return }
 
         let cleanup = {
             self.closeDevices(on: runLoop)
             self.restoreProperties()
             handler(.completed)
-            self.lifecycleLock.withLock {
-                self.eventHandler = nil
-                self.workerRunLoop = nil
-                self.workerThread = nil
-            }
             CFRunLoopStop(runLoop)
         }
 
@@ -218,7 +274,25 @@ public final class SPUIMUSource: SensorSource {
             semaphore.signal()
         }
         CFRunLoopWakeUp(runLoop)
-        semaphore.wait()
+        guard semaphore.wait(
+            timeout: .now() + Self.workerRequestTimeout
+        ) == .success else {
+            handler(.warning(
+                path: nil,
+                message: "timed out waiting for the IMU worker to stop"
+            ))
+            CFRunLoopStop(runLoop)
+            CFRunLoopWakeUp(runLoop)
+            return
+        }
+        if workerExit.wait(
+            timeout: .now() + Self.workerRequestTimeout
+        ) != .success {
+            handler(.warning(
+                path: nil,
+                message: "IMU worker did not exit promptly after shutdown"
+            ))
+        }
     }
 
     public func applyWakeSequenceIfNeeded(reportInterval: Int = 10_000) throws {
@@ -389,22 +463,32 @@ public final class SPUIMUSource: SensorSource {
     }
 
     private func handleUnexpectedWorkerExit(on runLoop: CFRunLoop) {
-        let shouldReport = lifecycleLock.withLock { running }
-        guard shouldReport else { return }
+        let shouldReport = lifecycleLock.withLock {
+            let wasRunning = running
+            running = false
+            return wasRunning
+        }
         closeDevices(on: runLoop)
         restoreProperties()
-        emit(.failed(path: nil, reason: "IMU RunLoop stopped unexpectedly"))
-        lifecycleLock.withLock {
-            running = false
-            eventHandler = nil
-            workerRunLoop = nil
-            workerThread = nil
+        if shouldReport {
+            emit(.failed(path: nil, reason: "IMU RunLoop stopped unexpectedly"))
         }
+        clearWorkerState()
     }
 
     private func cleanupStartupFailure(on runLoop: CFRunLoop) {
         closeDevices(on: runLoop)
         restoreProperties()
+    }
+
+    private func clearWorkerState() {
+        lifecycleLock.withLock {
+            running = false
+            eventHandler = nil
+            workerRunLoop = nil
+            workerThread = nil
+            workerExitSemaphore = nil
+        }
     }
 
     private func applyWakeSequenceOnWorker(reportInterval: Int) throws {
@@ -520,8 +604,19 @@ public final class SPUIMUSource: SensorSource {
             semaphore.signal()
         }
         CFRunLoopWakeUp(state.0)
-        semaphore.wait()
-        try result.result?.get()
+        guard semaphore.wait(
+            timeout: .now() + Self.workerRequestTimeout
+        ) == .success else {
+            throw HardwareError.registry(
+                "timed out waiting for the IMU worker request"
+            )
+        }
+        guard let completed = result.result else {
+            throw HardwareError.registry(
+                "IMU worker did not report the request result"
+            )
+        }
+        try completed.get()
     }
 
     private func emit(_ event: SensorSourceEvent) {

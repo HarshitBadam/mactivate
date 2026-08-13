@@ -44,7 +44,7 @@ public final class MactivateRuntimeController {
         tapStreamConfiguration: TapStreamConfiguration = TapStreamConfiguration(),
         panelCalibration: AmbientLightDipCalibration = .mac14_2Experimental,
         runtimeQueue: DispatchQueue =
-            DispatchQueue(label: "com.mactivate.runtime.sensor"),
+            DispatchQueue(label: "com.mactivate.runtime.sensor", qos: .utility),
         deliveryQueue: DispatchQueue = .main,
         emittedTapLimit: Int = 256,
         outputHandler: @escaping OutputHandler
