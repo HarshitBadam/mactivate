@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline IMU tap analysis (Local Probe Plan, Step 8).
+"""Offline IMU tap analysis for recorded Mactuation captures.
 
 Pure stdlib so it runs on any macOS python3. Usage:
 

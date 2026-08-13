@@ -1,7 +1,6 @@
 import Foundation
 
-/// `session.json` — everything needed to interpret a capture later, per the
-/// Local Probe Plan's reproducibility requirements.
+/// `session.json` — everything needed to interpret and reproduce a capture.
 public struct SessionManifest: Codable, Equatable, Sendable {
     public struct Environment: Codable, Equatable, Sendable {
         public struct HIDUsage: Codable, Equatable, Sendable {

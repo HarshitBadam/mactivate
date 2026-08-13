@@ -44,12 +44,13 @@ public final class MockSensorSource: SensorSource {
         self.configuration = configuration
     }
 
-    public func start(handler: @escaping (SensorSample) -> Void) throws {
+    public func start(handler: @escaping (SensorSourceEvent) -> Void) throws {
         guard !started else { throw SensorSourceError.alreadyStarted }
         started = true
         for sample in generate() {
-            handler(sample)
+            handler(.sample(sample))
         }
+        handler(.completed)
     }
 
     public func stop() {

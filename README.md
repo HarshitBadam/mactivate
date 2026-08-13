@@ -1,42 +1,105 @@
 # Mactivate
 
-Mactivate is a macOS proof of concept where moving a hand near the camera/notch opens a large notch-attached mapping workspace, and single, double, or triple taps on calibrated palm-rest or nearby-table regions run configurable shortcuts and actions. See [Product Vision](docs/product-vision.md) for the authoritative product scope.
+Mactivate is a personal macOS hardware experiment that turns a MacBook's hidden sensors into shortcuts. It is built for daily use by me and friends, as a GitHub portfolio project, and as reusable sensor-engineering work for future projects.
 
-Deterministic classification, measured reliability, exactly-once actions, graceful recovery, polished accessible UI/UX, and unsurprising camera/microphone privacy behavior are release requirements.
+This README is the single source of truth for product scope. Files under `docs/` preserve research evidence; they do not define the product.
 
-## Status
+## MVP contract
 
-**Research, active hardware probing, and the engine core.** This repository holds project standards, an evidence-backed research survey, the [Local Probe Plan](docs/local-probe-plan.md) now executing on the physical target MacBook, [`MactuationCore`](MactuationCore/) — the tested, transport-agnostic foundation of the Mactuation Engine (sample models, capability states, capture format, deterministic replay, mock streams) — and [`MactuationProbe`](MactuationProbe/), the probe CLI (`identify`, `discover`, `als-watch`, `imu-capture`) whose acquisition adapters live behind the engine's `SensorSource` boundary. First validated captures exist; no gesture classifiers exist yet.
+1. Moving a hand near the camera/notch sensor area opens a notch-attached dropdown panel.
+2. Comfortable single, double, and triple taps on the MacBook palm rests trigger configured actions.
+3. The panel offers a small set of useful quick actions.
+4. A menu-bar/app icon always provides a reliable way to open the panel when hover sensing is unavailable or disabled.
 
-## Mactuation Engine
+The hover trigger is best-effort. It may be limited by lighting conditions, but it only opens the panel—it never executes an action. Tap recognition fails closed when input is ambiguous.
 
-The **Mactuation Engine** is the experimental subsystem that will discover, read, fuse, calibrate, and classify low-level hardware signals into hand-near and tap events. Its hardware-independent core lives in [`MactuationCore`](MactuationCore/); acquisition adapters and classifiers follow the probe. Ambient-light sensing is preferred over camera input for hand-near detection; accelerometer sensing is preferred over microphone input for taps. Camera and microphone remain fallbacks, but carry greater privacy cost and activate macOS's green/orange privacy indicators. The engine intentionally explores beyond documented public macOS APIs and remains isolated behind capability-detected adapters.
+## Current status
 
-## Evidence status: prior art vs. locally validated
+The reusable sensor-engine phase is implemented. It includes macOS SPU/ALS acquisition, safe start/stop and property restoration, deterministic capture/replay, batch and bounded-live palm-tap classification, and a best-effort ALS panel-open hint. The macOS app, notch panel, action mappings, and menu-bar fallback are the remaining product work.
 
-This project draws a hard line between two kinds of claims:
+Validated on a **Mac14,2 MacBook Air M2 running macOS 26.2**:
 
-- **Source-backed prior art** — behavior demonstrated by external projects, documentation, or teardown notes and cited with a direct URL. It tells us something is *plausible*, on *some* hardware/OS, per *someone else's* report.
-- **Locally validated hardware support** — behavior this project has itself confirmed on the specific target MacBook and macOS version, via the local probe plan.
+- The SPU accelerometer is readable without root in an interactive user session at up to approximately 800 Hz.
+- The ambient-light sensor exposes an unprivileged live `CurrentLux` value at 5 Hz, raisable to a measured 10 Hz ceiling.
+- Palm-rest taps are materially easier to distinguish from typing and trackpad activity than nearby-table taps.
+- Nearby-table taps are detectable, but overlap heavily with typing and desk bumps; they are not part of the MVP.
+- ALS hover sensing works in favorable lighting, but dim light and ordinary moving shadows can make it unavailable or trigger false positives. The app-icon fallback is therefore part of the core experience.
+- Live hardware smoke checks measured approximately 796 Hz accelerometer delivery and repeatable source lifecycle on the target machine.
 
-Local validation began on **2026-07-24** on the target machine (Mac14,2, MacBook Air M2, macOS 26.2): the SPU accelerometer, gyroscope, and ambient-light sensor are confirmed **present** in the IOKit registry with their expected usages, and the ALS exposes an unprivileged live `CurrentLux` registry property not found in prior art. Data flow, decode layout, privileges for HID access, and every gesture hypothesis remain **unvalidated** — see [Probe Results](docs/probe-results/2026-07-24-mac14-2-discovery.md) and the [Decision Log](docs/decision-log.md).
+Detailed measurements are in the [Mac14,2 probe results](docs/probe-results/2026-07-24-mac14-2-discovery.md).
 
-## Documentation
+## Repository
 
-- [Product Vision](docs/product-vision.md) — the intended experience, separated into deliberate choices, facts, hypotheses, and open questions.
-- [Sensor Landscape](docs/research/sensor-landscape.md) — capability survey of sensors/interfaces with access methods, privileges, data rates, confidence, and sources.
-- [Prior Art](docs/research/prior-art.md) — catalogue of relevant open-source and commercial projects and what each actually proves.
-- [Gesture Hypotheses](docs/research/gesture-hypotheses.md) — concrete, falsifiable hypotheses for palm-rest/table taps and hand-near opening.
-- [Local Probe Plan](docs/local-probe-plan.md) — the step-by-step hardware investigation to run on the target MacBook.
-- [Probe Results](docs/probe-results/) — locally observed hardware facts, one file per probe session.
-- [Architecture Options](docs/architecture-options.md) — in-process vs. helper vs. daemon trade-offs and a preliminary recommendation.
-- [UX Exploration](docs/ux-exploration.md) — the large notch workspace, setup, calibration, mapping, and fallback behavior.
-- [Decision Log](docs/decision-log.md) — the few decisions actually made so far.
-- [Engineering Guidelines](docs/engineering-guidelines.md) — hardware, reliability, privacy, qualification, and interface requirements.
+- `[MactuationCore](MactuationCore/)` — one Swift package containing the hardware-independent `MactuationCore` product and reusable macOS `MactuationHardware` product. Core owns models, source lifecycle events, capture/replay, deterministic classifiers, and committed regression fixtures; Hardware owns IOKit acquisition.
+- `[MactuationProbe](MactuationProbe/)` — thin macOS CLI for machine identification, hardware discovery, capture, raw ALS observation, live tap diagnostics, and panel-hint diagnostics.
+- `[scripts](scripts/)` — offline IMU analysis, rule scoring, and daemon-context diagnostics.
+- `[docs/research](docs/research/)` — prior art, sensor landscape, and recorded gesture experiments.
+- `[docs/probe-results](docs/probe-results/)` — measurements from physical hardware.
 
-## Next step
 
-The immediate next task is **not** to write product code. It is to run the [Local Probe Plan](docs/local-probe-plan.md) on the physical target MacBook: establish the exact hardware model and macOS version, discover the relevant IOKit services, determine which sensor paths and privileges are actually available, and capture the first labelled sensor samples. Those results are what will turn the hypotheses in this repository into validated (or invalidated) facts.
+
+## Practical quality bar
+
+Personal project does not mean careless software:
+
+- Sensor processing and actions stay off the main thread.
+- Ambiguous taps do nothing.
+- One accepted tap sequence executes at most one action.
+- Hover false positives may open the panel but cannot run an action.
+- Sensor state is restored when capture stops.
+- Unsupported hardware and poor lighting degrade to the app-icon path instead of crashing.
+- Core signal-processing behavior remains deterministic and tested.
+- Hardware and environmental limitations are documented honestly.
+
+Commercial qualification, broad model support, perfect detection in every environment, App Store distribution, and enterprise-grade migration or observability systems are not MVP requirements.
+
+## Non-goals
+
+- Nearby-table taps.
+- Left/right/center tap localization or separate mappings by palm-rest side.
+- Cross-region sequences, arbitrary rhythms, lid, pickup, tilt, or shake gestures.
+- Camera or microphone fallback for the first version.
+- Universal Mac compatibility.
+
+
+
+## Build and test
+
+```bash
+swift test --package-path MactuationCore
+swift build --package-path MactuationProbe
+```
+
+Probe commands:
+
+```bash
+MactuationProbe/.build/debug/mactuation-probe identify
+MactuationProbe/.build/debug/mactuation-probe discover
+MactuationProbe/.build/debug/mactuation-probe als-watch --panel-hints
+MactuationProbe/.build/debug/mactuation-probe tap-watch --rate-hz 800
+MactuationProbe/.build/debug/mactuation-probe imu-capture --label test --rate-hz 800
+```
+
+
+
+## Next
+
+1. Build the menu-bar app and notch-attached panel.
+2. Compose the existing tap and panel-hint facilities behind the smallest app-facing runtime API.
+3. Add the reliable menu-bar/app-icon fallback before relying on the lighting-sensitive panel hint.
+4. Add a few safe quick actions, action dispatch, and persistent mappings.
+5. Add launch-at-login and app lifecycle handling, then qualify the complete experience.
+
+
+
+## Research
+
+- [Probe results](docs/probe-results/2026-07-24-mac14-2-discovery.md)
+- [Gesture experiments and verdicts](docs/research/gesture-hypotheses.md)
+- [Sensor landscape](docs/research/sensor-landscape.md)
+- [Prior art](docs/research/prior-art.md)
+
+
 
 ## License
 

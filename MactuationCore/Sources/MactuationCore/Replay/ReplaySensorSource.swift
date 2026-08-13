@@ -25,12 +25,13 @@ public final class ReplaySensorSource: SensorSource {
         self.paths = Array(Set(samples.map(\.path))).sorted { $0.rawValue < $1.rawValue }
     }
 
-    public func start(handler: @escaping (SensorSample) -> Void) throws {
+    public func start(handler: @escaping (SensorSourceEvent) -> Void) throws {
         guard !started else { throw SensorSourceError.alreadyStarted }
         started = true
         for sample in samples {
-            handler(sample)
+            handler(.sample(sample))
         }
+        handler(.completed)
     }
 
     public func stop() {

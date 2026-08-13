@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import MactuationCore
+import MactuationHardware
 
 enum ProbeError: Error, CustomStringConvertible {
     case usage(String)
@@ -43,7 +44,117 @@ private final class ALSRunState {
     var samples: [ALSSample] = []
     var changeTimes: [Double] = []
     var previousLux: Double?
-    var writeError: Error?
+    private let lock = NSLock()
+    private var _writeError: Error?
+    private var _sourceError: String?
+
+    var writeError: Error? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _writeError
+        }
+        set {
+            lock.lock()
+            _writeError = newValue
+            lock.unlock()
+        }
+    }
+
+    var sourceError: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _sourceError
+        }
+        set {
+            lock.lock()
+            _sourceError = newValue
+            lock.unlock()
+        }
+    }
+}
+
+private final class TapWatchState: @unchecked Sendable {
+    let stream: TapStreamClassifier
+
+    private let lock = NSLock()
+    private var _sourceError: String?
+    private var _acceptedCount = 0
+    private var _rejectedCount = 0
+
+    init(stream: TapStreamClassifier) {
+        self.stream = stream
+    }
+
+    var sourceError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _sourceError
+    }
+
+    var counts: (accepted: Int, rejected: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (_acceptedCount, _rejectedCount)
+    }
+
+    func process(_ event: SensorSourceEvent) {
+        switch event {
+        case .sample(let sample):
+            guard case .imu(.spuAccelerometer, let imu) = sample else { return }
+            do {
+                for group in try stream.append(imu) {
+                    guard group.verdict.isAccepted else {
+                        lock.lock()
+                        _rejectedCount += 1
+                        lock.unlock()
+                        continue
+                    }
+                    lock.lock()
+                    _acceptedCount += 1
+                    lock.unlock()
+                    let verdict: String
+                    switch group.verdict {
+                    case .acceptedComfort:
+                        verdict = "comfort"
+                    case .acceptedFirm(let side):
+                        verdict = "firm-\(side.rawValue)"
+                    case .rejected:
+                        verdict = "rejected"
+                    }
+                    let firstTime = group.members.first?.time ?? imu.timestamp
+                    print(String(
+                        format: "%.6f s  TAP count=%d verdict=%@ latency=%.3f s id=%@",
+                        firstTime,
+                        group.members.count,
+                        verdict,
+                        max(0, imu.timestamp - firstTime),
+                        group.eventID(
+                            calibrationVersion: stream.classifier.calibration.version
+                        )
+                    ))
+                }
+            } catch {
+                setError(String(describing: error))
+            }
+        case .failed(_, let reason):
+            setError(reason)
+        case .warning(let path, let message):
+            let prefix = path.map { "\($0.rawValue): " } ?? ""
+            FileHandle.standardError.write(
+                Data("warning: \(prefix)\(message)\n".utf8)
+            )
+        case .completed:
+            break
+        }
+    }
+
+    private func setError(_ reason: String) {
+        lock.lock()
+        if _sourceError == nil { _sourceError = reason }
+        lock.unlock()
+    }
 }
 
 private final class IMUCaptureController {
@@ -69,12 +180,22 @@ private final class IMUCaptureController {
 
     func start() throws {
         startUptime = ProcessInfo.processInfo.systemUptime
-        try source.start { [weak self] sample in
-            guard let self, self.captureError == nil else { return }
-            do {
-                try self.writer?.append(sample)
-            } catch {
-                self.captureError = error
+        try source.start { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .sample(let sample):
+                guard self.captureError == nil else { return }
+                do {
+                    try self.writer?.append(sample)
+                } catch {
+                    self.captureError = error
+                }
+            case .failed(_, let reason):
+                self.captureError = ProbeError.hardware(reason)
+            case .warning(_, let message):
+                FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+            case .completed:
+                break
             }
         }
 
@@ -187,7 +308,7 @@ let capturesRoot = repositoryRoot.appendingPathComponent("captures", isDirectory
 
 private func collectCaptureEnvironment(requiredPrivileges: [String] = []) -> SessionManifest.Environment {
     var seen: Set<UInt64> = []
-    let usages = (try? SPURegistry.discover())?.compactMap {
+    let usages = (try? SPUHardwareInspector.inspect())?.services.compactMap {
         service -> SessionManifest.Environment.HIDUsage? in
         guard let page = service.usagePage, let usage = service.usage else { return nil }
         let key = (UInt64(page) << 32) | UInt64(usage)
@@ -228,25 +349,12 @@ private func runIdentify(_ arguments: Arguments) throws {
     }
 }
 
-private func makeCapabilityReport(services: [SPURegistryService],
+private func makeCapabilityReport(snapshot: SPUHardwareSnapshot,
                                   displayServices: DisplayServicesStatus) -> CapabilityReport {
-    let ambient = services.first { $0.usagePage == 0xFF00 && $0.usage == 4 }
-    let currentLux = ambient?.number("CurrentLux")?.doubleValue
-
     var states: [SensorPath: CapabilityState] = [:]
-    states[.spuAccelerometer] = HIDOpenProbe.probe(services: services, usagePage: 0xFF00, usage: 3)
-    states[.spuGyroscope] = HIDOpenProbe.probe(services: services, usagePage: 0xFF00, usage: 9)
-    if let currentLux {
-        states[.spuAmbientLight] = .available(
-            detail: "unprivileged AppleSPUVD6286 CurrentLux registry poll succeeded (lux=\(currentLux))"
-        )
-    } else if ambient != nil {
-        states[.spuAmbientLight] = .unavailable(
-            reason: "SPU ALS usage 0xFF00/4 present, but CurrentLux was unreadable"
-        )
-    } else {
-        states[.spuAmbientLight] = .unavailable(reason: "Apple SPU HID usage 0xFF00/4 absent")
-    }
+    states[.spuAccelerometer] = snapshot.state(of: .spuAccelerometer)
+    states[.spuGyroscope] = snapshot.state(of: .spuGyroscope)
+    states[.spuAmbientLight] = snapshot.state(of: .spuAmbientLight)
     states[.displayServicesAmbientLight] = displayServices.frameworkPresent
         ? .unknown
         : .unavailable(reason: "DisplayServices.framework absent")
@@ -256,19 +364,19 @@ private func makeCapabilityReport(services: [SPURegistryService],
 }
 
 private func runDiscover(_ arguments: Arguments) throws {
-    let services = try SPURegistry.discover()
+    let snapshot = try SPUHardwareInspector.inspect()
     let displayServices = DisplayServicesProbe.inspect()
-    let report = makeCapabilityReport(services: services, displayServices: displayServices)
+    let report = makeCapabilityReport(snapshot: snapshot, displayServices: displayServices)
     if arguments.has("--json") {
         print(try jsonString(report))
         return
     }
 
-    if services.isEmpty {
+    if snapshot.services.isEmpty {
         print("No AppleSPUHIDDriver or AppleSPUHIDDevice services found.")
     } else {
-        print("IOKit SPU services (\(services.count)):")
-        for service in services {
+        print("IOKit SPU services (\(snapshot.services.count)):")
+        for service in snapshot.services {
             print(service.humanDescription())
         }
     }
@@ -298,6 +406,7 @@ private func runALSWatch(_ arguments: Arguments) throws {
     let duration = try arguments.double(after: "--duration", default: 30)
     let pollHz = try arguments.double(after: "--poll-hz", default: 20)
     let capture = arguments.has("--capture")
+    let panelHints = arguments.has("--panel-hints")
     let label = try arguments.value(after: "--label")
     if capture && label == nil {
         throw ProbeError.usage("--capture requires --label <label>")
@@ -308,9 +417,12 @@ private func runALSWatch(_ arguments: Arguments) throws {
             throw ProbeError.usage("--report-interval must be a positive integer (microseconds)")
         }
         reportInterval = parsed
+    } else if panelHints {
+        reportInterval = 50_000
     }
 
     let source = try RegistryALSSource(pollHz: pollHz, reportIntervalOverride: reportInterval)
+    let dipDetector = panelHints ? try AmbientLightDipDetector() : nil
     var acquisitionParameters = [
         "method": "registry_poll",
         "poll_hz": String(pollHz)
@@ -344,26 +456,77 @@ private func runALSWatch(_ arguments: Arguments) throws {
         )
     }
 
-    try source.start { sample in
-        guard case .als(_, let als) = sample else { return }
-        state.samples.append(als)
-        if state.previousLux == nil || state.previousLux != als.lux {
-            print(String(format: "%.6f s  lux=%.6f", als.timestamp, als.lux))
-            if state.previousLux != nil { state.changeTimes.append(als.timestamp) }
-            state.previousLux = als.lux
-        }
-        if let writer {
-            do {
-                try writer.append(sample)
-            } catch {
-                state.writeError = error
+    try source.start { event in
+        switch event {
+        case .sample(let sample):
+            guard case .als(_, let als) = sample else { return }
+            state.samples.append(als)
+            if state.previousLux == nil || state.previousLux != als.lux {
+                print(String(format: "%.6f s  lux=%.6f", als.timestamp, als.lux))
+                if state.previousLux != nil { state.changeTimes.append(als.timestamp) }
+                state.previousLux = als.lux
             }
+            if let writer {
+                do {
+                    try writer.append(sample)
+                } catch {
+                    state.writeError = error
+                }
+            }
+            if let dipDetector {
+                do {
+                    for event in try dipDetector.process(als) {
+                        switch event {
+                        case .readinessChanged(let readiness):
+                            let description: String
+                            switch readiness {
+                            case .warmingUp: description = "warming-up"
+                            case .available: description = "available"
+                            case .tooDim: description = "too-dim"
+                            }
+                            print(String(
+                                format: "%.6f s  panel-hint readiness=%@",
+                                als.timestamp,
+                                description
+                            ))
+                        case .panelOpenHint(let hint):
+                            print(String(
+                                format: "%.6f s  PANEL-HINT baseline=%.2f lux=%.2f drop=%.1f%%",
+                                hint.timestamp,
+                                hint.baselineLux,
+                                hint.observedLux,
+                                hint.relativeDrop * 100
+                            ))
+                        }
+                    }
+                } catch {
+                    state.sourceError = String(describing: error)
+                }
+            }
+        case .failed(_, let reason):
+            state.sourceError = reason
+        case .warning(_, let message):
+            FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
+        case .completed:
+            break
         }
     }
 
-    Thread.sleep(forTimeInterval: duration)
+    signal(SIGINT, SIG_IGN)
+    let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    signalSource.setEventHandler {
+        source.stop()
+        exit(130)
+    }
+    signalSource.resume()
+
+    runLoop(until: ProcessInfo.processInfo.systemUptime + duration) {
+        state.writeError != nil || state.sourceError != nil
+    }
+    signalSource.cancel()
     source.stop()
     if let error = state.writeError { throw error }
+    if let error = state.sourceError { throw ProbeError.hardware(error) }
 
     let values = state.samples.map(\.lux)
     let mean = values.isEmpty ? 0 : values.reduce(0, +) / Double(values.count)
@@ -404,6 +567,99 @@ private func runLoop(until deadline: TimeInterval,
     }
 }
 
+private func runTapWatch(_ arguments: Arguments) throws {
+    let duration = try arguments.double(after: "--duration", default: 30)
+    let requestedRate = try arguments.double(after: "--rate-hz", default: 800)
+    guard requestedRate <= 10_000 else {
+        throw ProbeError.usage("--rate-hz must be between 1 and 10000")
+    }
+    let reportInterval = Int((1_000_000 / requestedRate).rounded())
+    let source = try SPUIMUSource(includeGyroscope: false)
+    let processing = SensorProcessingQueue(label: "com.mactivate.tap-watch")
+    let state = TapWatchState(stream: try TapStreamClassifier())
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    defer {
+        source.stop()
+        processing.finish()
+        state.stream.reset()
+    }
+
+    do {
+        try source.start { event in
+            processing.submit {
+                state.process(event)
+            }
+        }
+    } catch let error as HardwareError where error.isPrivilegeFailure {
+        throw ProbeError.hardware(
+            "\(error)\nRerun with: sudo .build/debug/mactuation-probe tap-watch ..."
+        )
+    }
+
+    signal(SIGINT, SIG_IGN)
+    let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    signalSource.setEventHandler {
+        source.stop()
+        processing.finish()
+        exit(130)
+    }
+    signalSource.resume()
+
+    let deadline = startedAt + duration
+    let initialDeadline = min(deadline, startedAt + 1)
+    runLoop(until: initialDeadline) {
+        source.totalReportCount > 0 ||
+            source.malformedReport != nil ||
+            state.sourceError != nil
+    }
+    if source.totalReportCount == 0,
+       source.malformedReport == nil,
+       state.sourceError == nil,
+       ProcessInfo.processInfo.systemUptime < deadline {
+        print("No reports arrived without wake properties; applying wake sequence.")
+        do {
+            try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
+        } catch let error as HardwareError where error.isPrivilegeFailure {
+            throw ProbeError.hardware(
+                "\(error)\nRerun with: sudo .build/debug/mactuation-probe tap-watch ..."
+            )
+        }
+    }
+    runLoop(until: deadline) {
+        source.malformedReport != nil || state.sourceError != nil
+    }
+
+    signalSource.cancel()
+    source.stop()
+    processing.finish()
+
+    if let malformed = source.malformedReport {
+        throw ProbeError.hardware("tap watch aborted: \(malformed)")
+    }
+    if let error = state.sourceError {
+        throw ProbeError.hardware("tap watch aborted: \(error)")
+    }
+
+    let elapsed = max(
+        0.001,
+        ProcessInfo.processInfo.systemUptime - startedAt
+    )
+    let counts = state.counts
+    print("Summary:")
+    print(String(
+        format: "  accelerometer reports: %d (effective %.3f Hz)",
+        source.reportCount(for: .spuAccelerometer),
+        source.effectiveRate(for: .spuAccelerometer, elapsed: elapsed)
+    ))
+    if let frozenRate = state.stream.sampleRateHz {
+        print(String(format: "  classifier frozen rate: %.3f Hz", frozenRate))
+    } else {
+        print("  classifier frozen rate: unavailable")
+    }
+    print("  accepted groups: \(counts.accepted)")
+    print("  rejected diagnostic groups: \(counts.rejected)")
+}
+
 private func runIMUCapture(_ arguments: Arguments) throws {
     let duration = try arguments.double(after: "--duration", default: 30)
     guard let label = try arguments.value(after: "--label") else {
@@ -425,7 +681,7 @@ private func runIMUCapture(_ arguments: Arguments) throws {
 
     do {
         try controller.start()
-    } catch let error as SPUIMUError where error.isPrivilegeFailure {
+    } catch let error as HardwareError where error.isPrivilegeFailure {
         throw ProbeError.hardware(
             "\(error)\nRerun with: sudo .build/debug/mactuation-probe imu-capture ..."
         )
@@ -468,7 +724,7 @@ private func runIMUCapture(_ arguments: Arguments) throws {
         print("No reports arrived without wake properties; applying wake sequence.")
         do {
             try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
-        } catch let error as SPUIMUError where error.isPrivilegeFailure {
+        } catch let error as HardwareError where error.isPrivilegeFailure {
             controller.discard()
             throw ProbeError.hardware(
                 "\(error)\nRerun with: sudo .build/debug/mactuation-probe imu-capture ..."
@@ -503,7 +759,8 @@ private func usage() -> String {
     Usage:
       mactuation-probe identify [--json]
       mactuation-probe discover [--json]
-      mactuation-probe als-watch [--duration seconds] [--poll-hz hz] [--report-interval us] [--capture --label label]
+      mactuation-probe als-watch [--duration seconds] [--poll-hz hz] [--report-interval us] [--panel-hints] [--capture --label label]
+      mactuation-probe tap-watch [--duration seconds] [--rate-hz hz]
       mactuation-probe imu-capture [--duration seconds] --label label [--rate-hz hz] [--gyro] [--marker]
     """
 }
@@ -521,6 +778,8 @@ do {
         try runDiscover(arguments)
     case "als-watch":
         try runALSWatch(arguments)
+    case "tap-watch":
+        try runTapWatch(arguments)
     case "imu-capture":
         try runIMUCapture(arguments)
     case "help", "--help", "-h":

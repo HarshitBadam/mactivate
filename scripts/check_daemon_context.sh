@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Run the existing HID open probe as the current (unprivileged) user from a
 # system launchd domain. This distinguishes interactive Terminal access from
-# the daemon/non-Aqua context still open in docs/architecture-options.md.
+# a daemon/non-Aqua context before choosing the simplest app architecture.
 #
 # The job is temporary: its plist and output live under /tmp and the launchd
 # registration is removed before this script exits. No capture is created and

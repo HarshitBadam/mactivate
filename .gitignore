@@ -48,6 +48,10 @@ build/
 Packages/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
+# Python bytecode / tool caches
+__pycache__/
+*.py[cod]
+
 # ─────────────────────────────────────────────────────────────
 # Local environment / configuration secrets
 # ─────────────────────────────────────────────────────────────
@@ -79,7 +83,7 @@ export/
 # Captured sensor data / probe output
 # Raw and labelled sensor captures may contain large binaries and
 # personal signals; keep them out of version control by default.
-# Commit small, sanitized samples deliberately under docs/ if needed.
+# Commit small, sanitized samples deliberately under test Fixtures/ if needed.
 # ─────────────────────────────────────────────────────────────
 captures/
 *.rawimu

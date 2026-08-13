@@ -1,6 +1,6 @@
 # Sensor & Interface Landscape
 
-An evidence-backed survey of the hardware signals and system interfaces Mactivate might use. Every meaningful claim links to a source. **None of this has been validated on the target MacBook yet** — see [Local Probe Plan](../local-probe-plan.md).
+An evidence-backed survey of hardware signals and system interfaces relevant to Mactivate. The comparison table records external evidence; locally measured results for Mac14,2/macOS 26.2 are called out separately and documented in the [probe results](../probe-results/2026-07-24-mac14-2-discovery.md).
 
 ## How to read the confidence column
 
@@ -39,7 +39,7 @@ The strongest and best-corroborated internal-sensor path. Multiple independent i
 - Native sample rate is **~800 Hz**, commonly **decimated to ~100 Hz**. [1][2]
 - **Wake sequence:** the Swift port documents setting `SensorPropertyReportingState`, `SensorPropertyPowerState`, and `ReportInterval` on the `AppleSPUHIDDriver` services before reports flow. [2]
 - **Requires root.** All three implementations require `sudo` for IOKit HID access to this device. [1][2][3]
-- **Root vs. entitlements:** no source demonstrates an entitlement that grants non-root access to this device. Apple DTS guidance (via an older but still-cited answer) is that direct `IOHIDDeviceOpen` on protected/keyboard-like HID devices requires an interactive-user or root context, and non-sandboxed apps have no entitlement to add. [28] Treat "root, or a root helper" as the working assumption; verify locally at Probe Step 4 and note if any shipping tap app (Tapify, Knock) evidently avoids it.
+- **Root vs. entitlements:** no source demonstrates an entitlement that grants non-root access to this device. Apple DTS guidance (via an older but still-cited answer) is that direct `IOHIDDeviceOpen` on protected/keyboard-like HID devices requires an interactive-user or root context, and non-sandboxed apps have no entitlement to add. [28] Local testing later showed that the interactive-user context is sufficient on the target machine; launchd/non-interactive behavior remains a separate question.
 - **Lateral tap localization is demonstrated externally.** `Gojaehyeon/knocker` classifies palm-rest taps as **left / right / center** from the sign and magnitude of the X-axis impulse (high-pass per axis, ~150 ms integration window around each peak), with per-model calibration required because the IMU's position relative to the chassis varies. [29] This is the strongest external evidence that Mactivate's spatial region mapping is feasible on the same SPU path.
 - **Presence check without root:** `ioreg -l -w0 | grep -A5 AppleSPUHIDDevice`, or `IMU.available()` in the Python lib. [1]
 - **Locally validated (2026-07-24, Mac14,2, macOS 26.2):** accelerometer (0xFF00/3) and gyroscope (0xFF00/9) present with `sensor_rates` "50 100 200 400 800"; 22-byte reports and the 6/10/14 ÷ 65536 decode **confirmed against gravity**; ~99.7 Hz effective delivery at `ReportInterval` 10000 µs; wake sequence **required** (state properties absent until set). **The root requirement is refuted locally: HID open, wake writes, and delivery all succeeded unprivileged (euid 501) in an interactive user session, twice.** Daemon-context behavior untested. CoreMotion (`CMMotionManager`) reports `accelerometerAvailable = false` at runtime — public-API path refuted. See [Probe Results](../probe-results/2026-07-24-mac14-2-discovery.md).
@@ -48,7 +48,7 @@ The strongest and best-corroborated internal-sensor path. Multiple independent i
 
 ### Ambient light — physical placement
 
-Teardown evidence places the ALS **inside the notch itself, immediately left of the camera lens**, on notched MacBook Pro models: iFixit's 2021 MacBook Pro teardown X-ray identifies the ambient light sensor left of the camera sensor with the indicator LED to its right, and a leaked camera-module photo shows the True Tone + ambient light sensor package in the same position. [26][27] This is favorable geometry for a hand-near/cover gesture — a hand over the notch area should shadow the sensor directly — but update cadence and shadow response remain unmeasured. Placement on non-notch models (e.g. pre-2021, or the bezel-camera Air) is unverified and may differ.
+Teardown evidence places the ALS **inside the notch itself, immediately left of the camera lens**, on notched MacBook Pro models: iFixit's 2021 MacBook Pro teardown X-ray identifies the ambient light sensor left of the camera sensor with the indicator LED to its right, and a leaked camera-module photo shows the True Tone + ambient light sensor package in the same position. [26][27] This is favorable geometry for a hand-near/cover gesture. Local Mac14,2 measurements confirmed that a deliberate cover changes lux, while also exposing severe dim-light and moving-shadow limitations. Placement on other models remains unverified.
 
 ### Ambient light — two candidate paths
 
@@ -56,9 +56,9 @@ There appear to be **three distinct ALS access strategies**, with different priv
 
 1. **SPU HID (usage 4):** the same `AppleSPUHIDDevice` exposes ALS; olvvier's `read_als()` returns lux plus four spectral channels. The Apple Wiki documents an ALS IOHIDService on page `0xFF00` usage `4` with a default `ReportInterval` of `5428500` that can be lowered for faster reporting. Likely requires root (same HID path). [1][4][6]
 2. **DisplayServices `AggregatedLux`:** used by Hammerspoon's brightness extension and LuxCurve; reads an aggregate lux value via `DisplayServicesClient copyPropertyForKey:`. Reported to work **without root**, but the value is brightness-oriented and likely slower/smoothed. [7][8]
-3. **Registry poll of `CurrentLux` (locally discovered, 2026-07-24):** on Mac14,2/macOS 26.2 the ALS driver (`AppleSPUVD6286`, usage `0xFF00`/`4`) publishes a live `CurrentLux` registry property readable **unprivileged** via `IORegistryEntry`; observed updating with ambient changes, default `ReportInterval` 197380 (~5 Hz) — note this **conflicts with the Apple Wiki default of 5428500** and must be read-and-restored, not assumed. Update cadence under a deliberate hand shadow is unmeasured and is the deciding question. Not found in any surveyed prior art. See [Probe Results](../probe-results/2026-07-24-mac14-2-discovery.md).
+3. **Registry poll of `CurrentLux` (locally discovered, 2026-07-24):** on Mac14,2/macOS 26.2 the ALS driver (`AppleSPUVD6286`, usage `0xFF00`/`4`) publishes a live `CurrentLux` registry property readable **unprivileged** via `IORegistryEntry`; default `ReportInterval` 197380 gives ~5 Hz and an unprivileged override reaches a measured 10 Hz ceiling. This conflicts with the Apple Wiki default of 5428500, so the value must be read and restored rather than assumed. Deliberate covers are visible in favorable light, but dim light and ordinary shadows prevent reliable ALS-only classification. Not found in surveyed prior art. See [Probe Results](../probe-results/2026-07-24-mac14-2-discovery.md).
 
-For a hand-near/cover trigger we care about **latency and dynamic range under a shadow**, not calibrated lux — so the higher-rate SPU HID path is more promising *if* root is acceptable, while the DisplayServices path is the unprivileged fallback. Which is usable is an [open probe question](../local-probe-plan.md).
+For a hand-near trigger we care about **latency and dynamic range under a shadow**, not calibrated lux. The locally discovered unprivileged registry path is fast enough for a deliberate hover, but its signal is not unique: walking shadows can be stronger than intentional hovers, and the sensor bottoms out in dim light. Mactivate therefore treats ALS hover as best-effort and retains manual app-icon access.
 
 ### Lid angle — separate documented-ish HID device
 
@@ -97,7 +97,7 @@ Technical requirements and OS permissions for the initial action ideas. App Stor
 | Read global input (hotkeys/taps) | `CGEventTap` (listen) | **Input Monitoring** (`kTCCServiceListenEvent`) | Only if we intercept system-wide input. [22] |
 | App / window control | `AXUIElement` (Accessibility API) | **Accessibility** (`kTCCServiceAccessibility`) | Background-safe automation demonstrated by axcli / computer-use. [24][25] |
 
-**Implication for architecture:** the sensor paths (IOKit HID) that need **root** and the action paths that need **user-consented TCC grants** (Accessibility, Screen Recording, Automation) are *different* privilege domains. This split is a central input to [Architecture Options](../architecture-options.md).
+**Architecture implication:** on the measured Mac14,2 interactive-user session, the preferred IMU and ALS paths are unprivileged. An in-process menu-bar app is therefore the simplest first implementation. A helper or daemon is only justified if later lifecycle or launchd-context testing requires it; action-specific TCC grants remain separate.
 
 ---
 

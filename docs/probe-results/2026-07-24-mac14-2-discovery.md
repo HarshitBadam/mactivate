@@ -1,6 +1,6 @@
 # Probe Result — 2026-07-24 — harshitrao (agent-assisted)
 
-First execution of the [Local Probe Plan](../local-probe-plan.md) on physical target hardware, in two parts: shell diagnostics (`sysctl`, `sw_vers`, `system_profiler`, `ioreg`), then the newly built `MactuationProbe` tool (`identify`, `discover`, `als-watch`, `imu-capture`). This session covers **Steps 1–4 and first Step 5 captures**. Steps 6–10 (labelled gesture takes, offline analysis, qualification) are **not yet run** — nothing below claims gesture classification viability.
+Consolidated record of the 2026-07-24 physical-hardware investigation: shell diagnostics, `MactuationProbe` discovery/capture, labelled gesture takes, offline analysis, and deterministic replay checks. It records research evidence from one Mac14,2/macOS 26.2 session, not current product scope; the root README is authoritative for the MVP.
 
 ## Environment
 - Model identifier / chip: **Mac14,2 / Apple M2** (8-core, 8 GB)
@@ -87,12 +87,12 @@ Per-driver usages observed (`ioreg -r -c AppleSPUHIDDriver`):
 ## Quality gates
 - Deterministic replay on discovery captures: **PASS for identical input + `mac14_2-20260724-left-calibrated-1` configuration** — two independent `CaptureReader` → `TapClassifier` runs produce identical canonical group output and digest. Real-capture fixtures match the Python analyzer rule wrapper group-for-group across eight palm takes and seven adversarial baselines.
 - Discovery-session outcomes under the uniform documented rule: light 25/25; left comfort singles 19/20; alternating doubles/triples 29/29; doubles 22/25; triples 25/26; left firm 21/26; right comfort 25/28; right firm 23/32. Zero accepts on both 800 Hz typing takes, trackpad, rest, desk, and both bump takes after vetoes.
-- **Not product-qualified:** this is one session on one machine, the right-side firm cut remains unestablished, and repeated-session recall/precision, daemon-context access, lifecycle tests, and the deferred eight-hour false-positive run remain open.
+- **Limitations:** this is one session on one machine. The right-side firm cut remains unestablished, and live integration, daemon-context access, and basic relaunch/sleep-wake behavior remain untested.
 
 ## Deviations from prior-art claims (record per methodology)
 1. **ALS default `ReportInterval` observed as 197380, not 5428500** (Apple Wiki claim). Possibly a macOS 26 difference, or an existing client (auto-brightness/True Tone) already lowered it. The probe tool reads-and-restores whatever value it finds.
-2. **`CurrentLux` as a live, unprivileged registry property** was not documented in any surveyed source. Hand-wave trials confirmed its update cadence tracks the ~5 Hz `ReportInterval` exactly — H-HAND-NEAR is achievable with no root and no privileged helper for the ALS path. The `ReportInterval` is also writable unprivileged; a 50000 µs override yielded a measured **10 Hz ceiling** (intervals quantize at ~100 ms — likely the sensor's integration-time floor).
+2. **`CurrentLux` as a live, unprivileged registry property** was not documented in any surveyed source. Hand-wave trials confirmed its update cadence tracks the ~5 Hz `ReportInterval` exactly, and a 50000 µs override yielded a measured **10 Hz ceiling**. This makes best-effort hover sensing possible without root, but the lighting trials show that ALS alone cannot provide reliable classification across environments.
 3. The ALS driver class on this machine is **`AppleSPUVD6286`** (device-specific subclass), not the generic driver name — capability detection must match by usage page/usage, not class name.
-4. **The SPU IMU does not require root here** — refutes olvvier/section9-lab/taigrr's universal `sudo` requirement (all on earlier macOS versions) in an interactive user session on macOS 26.2. Architecture assumption 1 in [Architecture Options](../architecture-options.md) is invalidated; see the Decision Log.
+4. **The SPU IMU does not require root here** — refutes olvvier/section9-lab/taigrr's universal `sudo` requirement (all on earlier macOS versions) in an interactive user session on macOS 26.2. This supports an in-process menu-bar implementation unless later lifecycle or launchd-context testing shows otherwise.
 5. The wake-state properties (`SensorPropertyReportingState`, `SensorPropertyPowerState`) are **absent** from the registry until first set, so "restore" for them means resetting to 0, not restoring a read value.
 6. Driver entries report `ReportInterval=0` at rest while their `AppleSPUHIDDevice` parents report 8000 — the interval that matters for wake is the one written to the **driver** entry.

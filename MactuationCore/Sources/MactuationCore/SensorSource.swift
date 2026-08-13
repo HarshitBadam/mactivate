@@ -1,17 +1,26 @@
 import Foundation
 
-/// The engine's acquisition boundary. Hardware adapters (SPU HID, DisplayServices,
-/// consented fallbacks) will live behind this protocol; today the only
-/// implementations are `MockSensorSource` and `ReplaySensorSource`, which is
-/// deliberate — real adapters are probe deliverables.
+/// Everything a source can report after startup. Hardware failures can happen
+/// asynchronously, so they must travel over the same serialized boundary as
+/// samples instead of being silently dropped.
+public enum SensorSourceEvent: Equatable, Sendable {
+    case sample(SensorSample)
+    case failed(path: SensorPath?, reason: String)
+    case warning(path: SensorPath?, message: String)
+    case completed
+}
+
+/// The engine's acquisition boundary. Core provides mock and replay sources;
+/// macOS adapters are provided by the `MactuationHardware` product.
 public protocol SensorSource: AnyObject {
     var paths: [SensorPath] { get }
 
     /// Begins delivery. The handler may be called on any queue; callers that
-    /// need serialization wrap it themselves. Sources must deliver samples in
+    /// need serialization wrap it themselves. Sample events are delivered in
     /// non-decreasing timestamp order per path.
-    func start(handler: @escaping (SensorSample) -> Void) throws
+    func start(handler: @escaping (SensorSourceEvent) -> Void) throws
 
+    /// Stops future delivery. Implementations are idempotent.
     func stop()
 }
 

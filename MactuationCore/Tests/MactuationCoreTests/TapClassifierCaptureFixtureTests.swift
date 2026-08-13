@@ -111,11 +111,62 @@ final class TapClassifierCaptureFixtureTests: XCTestCase {
 
     func testCaptureReplayIsByteIdenticalAcrossRuns() throws {
         // Full replay path (reader → merged samples → classifier → digest),
-        // twice from disk, must agree byte for byte — Local Probe Plan Step 10.1.
+        // twice from disk, must agree byte for byte.
         let fixture = Self.fixtures[0]
         let classifier = TapClassifier(calibration: .mac14_2Discovery)
         let first = classifier.digest(of: try classifiedGroups(for: fixture))
         let second = classifier.digest(of: try classifiedGroups(for: fixture))
         XCTAssertEqual(first, second)
+    }
+
+    func testLiveStreamMatchesBatchVerdictsAndStableIDs() throws {
+        let classifier = TapClassifier(calibration: .mac14_2Discovery)
+        for fixture in Self.fixtures {
+            let directory = Self.capturesRoot.appendingPathComponent(fixture.capture)
+            guard FileManager.default.fileExists(atPath: directory.path) else {
+                throw XCTSkip("capture \(fixture.capture) not present on this machine")
+            }
+            let samples = try CaptureReader(directory: directory).mergedSamples()
+                .compactMap { sample -> IMUSample? in
+                    guard case .imu(.spuAccelerometer, let imu) = sample else {
+                        return nil
+                    }
+                    return imu
+                }
+            guard samples.count >= 2 else {
+                XCTFail("capture has too few accelerometer samples: \(fixture.capture)")
+                continue
+            }
+            let rate = Double(samples.count - 1) /
+                (samples[samples.count - 1].timestamp - samples[0].timestamp)
+            let batch = classifier.classify(
+                imuSamples: samples,
+                sampleRateHz: rate
+            )
+            let stream = try TapStreamClassifier(
+                calibration: .mac14_2Discovery,
+                sampleRateHz: rate
+            )
+            var streamed: [TapGroup] = []
+            for sample in samples {
+                streamed.append(contentsOf: try stream.append(sample))
+            }
+            streamed.append(contentsOf: stream.finishForReplay())
+
+            XCTAssertEqual(
+                verdictString(streamed),
+                verdictString(batch),
+                fixture.capture
+            )
+            XCTAssertEqual(
+                streamed.filter(\.verdict.isAccepted).map {
+                    $0.eventID(calibrationVersion: classifier.calibration.version)
+                },
+                batch.filter(\.verdict.isAccepted).map {
+                    $0.eventID(calibrationVersion: classifier.calibration.version)
+                },
+                fixture.capture
+            )
+        }
     }
 }

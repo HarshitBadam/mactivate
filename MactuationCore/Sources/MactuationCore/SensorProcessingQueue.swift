@@ -13,6 +13,10 @@ public final class SensorProcessingQueue: @unchecked Sendable {
         }
     }
 
+    public func submit(_ operation: @escaping @Sendable () -> Void) {
+        queue.async(execute: operation)
+    }
+
     public func finish() {
         queue.sync {}
     }

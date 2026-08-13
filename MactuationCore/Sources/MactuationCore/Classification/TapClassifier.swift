@@ -42,6 +42,11 @@ public struct TapGroup: Equatable, Sendable {
     }
 }
 
+struct TapClassifierAnalysis {
+    var groups: [TapGroup]
+    var resolvedThrough: SensorTimestamp?
+}
+
 /// Deterministic, offline H-TAP-PALM classifier.
 ///
 /// Reproduces `scripts/analyze_imu.py`'s pipeline operation-for-operation —
@@ -86,7 +91,29 @@ public struct TapClassifier: Sendable {
         let duration = times[n - 1] - times[0]
         guard duration > 0 else { return [] }
         let rate = Double(n - 1) / duration
+        return classify(imuSamples: rows, sampleRateHz: rate)
+    }
 
+    /// Classifies with a caller-supplied effective rate. Live replay uses this
+    /// overload so overlapping windows cannot change integer window sizes due
+    /// to tiny timestamp-jitter differences.
+    public func classify(imuSamples rows: [IMUSample],
+                         sampleRateHz rate: Double) -> [TapGroup] {
+        analyze(
+            imuSamples: rows,
+            sampleRateHz: rate,
+            endOfInput: true,
+            detectionStartIndex: 0
+        ).groups
+    }
+
+    func analyze(imuSamples rows: [IMUSample], sampleRateHz rate: Double,
+                 endOfInput: Bool, detectionStartIndex: Int) -> TapClassifierAnalysis {
+        let n = rows.count
+        guard n >= 2, rate.isFinite, rate > 0 else {
+            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+        }
+        let times = rows.map(\.timestamp)
         // Centered moving-average high-pass, mirroring analyze_imu.py:
         // per-axis prefix sums, window [i-half, i+half], residual magnitude
         // accumulated in x, y, z order so float rounding matches.
@@ -110,39 +137,83 @@ public struct TapClassifier: Sendable {
         }
         let magnitude = residualSquared.map { $0.squareRoot() }
 
-        let events = detectEvents(times: times, magnitude: magnitude, rate: rate,
-                                  signedResiduals: signedResiduals)
-        return groupAndJudge(events: events)
+        let stableEnd = endOfInput ? n : max(0, n - half)
+        guard stableEnd > 0 else {
+            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+        }
+        let detection = detectEvents(
+            times: times,
+            magnitude: magnitude,
+            rate: rate,
+            signedResiduals: signedResiduals,
+            startIndex: min(max(0, detectionStartIndex), stableEnd),
+            endIndex: stableEnd,
+            requireCompleteSupport: !endOfInput
+        )
+        let groups = groupAndJudge(events: detection.events)
+        guard !endOfInput else {
+            return TapClassifierAnalysis(groups: groups, resolvedThrough: times.last)
+        }
+        guard let resolvedThrough = detection.resolvedThrough else {
+            return TapClassifierAnalysis(groups: [], resolvedThrough: nil)
+        }
+        return TapClassifierAnalysis(
+            groups: groups.filter {
+                guard let last = $0.members.last else { return false }
+                return last.time + calibration.groupGapS <= resolvedThrough
+            },
+            resolvedThrough: resolvedThrough
+        )
+    }
+
+    private struct EventDetection {
+        var events: [TapEventFeatures]
+        var resolvedThrough: SensorTimestamp?
     }
 
     private func detectEvents(times: [SensorTimestamp], magnitude: [Double], rate: Double,
-                              signedResiduals: [[Double]]) -> [TapEventFeatures] {
-        let n = times.count
+                              signedResiduals: [[Double]], startIndex: Int,
+                              endIndex: Int,
+                              requireCompleteSupport: Bool) -> EventDetection {
         let threshold = calibration.eventThresholdG
         let refractory = max(1, Int(calibration.refractoryS * rate))
         let impulseHalf = max(1, Int(calibration.impulseHalfWindowS * rate))
 
         var events: [TapEventFeatures] = []
-        var i = 0
-        while i < n {
+        var resolvedEndIndex = endIndex - 1
+        var i = startIndex
+        while i < endIndex {
             guard magnitude[i] >= threshold else {
                 i += 1
                 continue
             }
-            let end = min(n, i + refractory)
+            if requireCompleteSupport && i + refractory > endIndex {
+                resolvedEndIndex = i - 1
+                break
+            }
+            let end = min(endIndex, i + refractory)
             // First index of the maximum, matching Python max()'s tie behavior.
             var peakIdx = i
             for j in i..<end where magnitude[j] > magnitude[peakIdx] {
                 peakIdx = j
             }
+            if requireCompleteSupport && peakIdx + impulseHalf >= endIndex {
+                resolvedEndIndex = i - 1
+                break
+            }
             var tail = peakIdx
-            while tail < n - 1 && magnitude[tail + 1] > threshold / 2 {
+            while tail < endIndex - 1 && magnitude[tail + 1] > threshold / 2 {
                 tail += 1
+            }
+            if requireCompleteSupport && tail == endIndex - 1 &&
+                magnitude[tail] > threshold / 2 {
+                resolvedEndIndex = i - 1
+                break
             }
             let decayMs = (times[tail] - times[peakIdx]) * 1000
 
             let lo = max(0, peakIdx - impulseHalf)
-            let hi = min(n, peakIdx + impulseHalf + 1)
+            let hi = min(endIndex, peakIdx + impulseHalf + 1)
             var impulses = [Double](repeating: 0, count: 3)
             for axis in 0..<3 {
                 var sum = 0.0
@@ -159,7 +230,10 @@ public struct TapClassifier: Sendable {
                 lateralImpulseMgS: (abs(impulses[0]) + abs(impulses[1])) * 1000))
             i = max(peakIdx + refractory, tail + 1)
         }
-        return events
+        let resolvedThrough = resolvedEndIndex >= startIndex
+            ? times[resolvedEndIndex]
+            : nil
+        return EventDetection(events: events, resolvedThrough: resolvedThrough)
     }
 
     private func groupAndJudge(events: [TapEventFeatures]) -> [TapGroup] {

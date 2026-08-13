@@ -30,7 +30,7 @@ Projects relevant to Mactivate, grouped by the problem they address. Each entry 
 - **Proves:** the sensor can live in a **standalone daemon** that publishes to consumers over a shared-memory IPC, decoupling privileged capture from unprivileged UI.
 - **Key details:** two binaries — `sensord` (root; IOKit HID → POSIX shared-memory ring buffers) and `sensordash` (unprivileged TUI reading shared memory). Ring buffers (accel/gyro): 16-byte header + 8000 × 12-byte entries; snapshots (ALS/lid): 8-byte header + payload; format kept compatible with the Python implementation.
 - **Limitations:** Go/purego is not our stack; shared-memory format is bespoke.
-- **Lesson:** this is a concrete, working instance of the **daemon + narrow local protocol** architecture in [Architecture Options](../architecture-options.md). It shows the privileged/unprivileged split is practical and that a ring-buffer snapshot protocol is enough for ~100 Hz sensor data.
+- **Lesson:** this is a concrete, working instance of a **daemon + narrow local protocol** architecture. It shows that a privileged/unprivileged split is practical and that a ring-buffer snapshot protocol is enough for ~100 Hz sensor data if Mactivate ever needs a separate sensor process.
 
 ### taigrr/spank
 - **URL:** https://github.com/taigrr/spank · **License:** MIT · **Language:** Go · **Target:** Apple Silicon MacBooks
@@ -140,7 +140,7 @@ Projects relevant to Mactivate, grouped by the problem they address. Each entry 
 - **URL:** https://github.com/tukuyomil032/Perch · **License:** verify · **Language:** Swift · **Target:** macOS (notch + non-notch)
 - **Proves:** a persistent **top-center pill that fuses into the notch or floats on non-notch Macs**, launches at login, hover-expands and auto-collapses — essentially the shell of Mactivate's surface.
 - **Key details:** clean AppKit/SwiftUI split — `IslandWindow` (transparent `NSWindow` overlay), `NotchDetector`, `IslandGeometry` (per-screen frame math), `MouseEventMonitor` (hover/click); SwiftUI `CompactPillView`/`ExpandedIslandView`; Metal metaball transition. Notes it is **not sandbox-compatible** (uses methods incompatible with the sandbox) — matching our private-API/non-App-Store posture.
-- **Lesson:** the closest structural analog to our UI layer; its AppKit-window / SwiftUI-content split is the model for [UX Exploration](../ux-exploration.md), and its candid "not sandboxable" note aligns Mactivate's UI with its sensor constraints.
+- **Lesson:** the closest structural analog to Mactivate's UI layer. Its AppKit-window / SwiftUI-content split is a useful model, and its candid "not sandboxable" note matches the constraints of private sensor APIs.
 
 ### TheBoredTeam/boring.notch
 - **URL:** https://github.com/TheBoredTeam/boring.notch · **License:** GPL-3.0 · **Language:** Swift · **Target:** MacBooks with a notch

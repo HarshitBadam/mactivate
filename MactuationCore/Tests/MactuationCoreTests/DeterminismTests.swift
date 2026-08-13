@@ -40,7 +40,9 @@ final class DeterminismTests: XCTestCase {
         func replayDigest() throws -> String {
             var digest = StreamDigest()
             let source = ReplaySensorSource(samples: samples)
-            try source.start { digest.update($0) }
+            try source.start {
+                if case .sample(let sample) = $0 { digest.update(sample) }
+            }
             source.stop()
             return digest.value
         }
@@ -71,7 +73,9 @@ final class DeterminismTests: XCTestCase {
 
         var replayed = StreamDigest()
         let source = try ReplaySensorSource(reader: CaptureReader(directory: tempDir))
-        try source.start { replayed.update($0) }
+        try source.start {
+            if case .sample(let sample) = $0 { replayed.update(sample) }
+        }
         XCTAssertEqual(replayed.value, originalDigest)
     }
 
@@ -83,7 +87,9 @@ final class DeterminismTests: XCTestCase {
         ]
         let replay = ReplaySensorSource(samples: samples)
         var replayed: [SensorSample] = []
-        try replay.start { replayed.append($0) }
+        try replay.start {
+            if case .sample(let sample) = $0 { replayed.append(sample) }
+        }
         XCTAssertEqual(replayed, samples)
 
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -106,6 +112,19 @@ final class DeterminismTests: XCTestCase {
         XCTAssertThrowsError(try source.start { _ in }) {
             XCTAssertEqual($0 as? SensorSourceError, .alreadyStarted)
         }
+    }
+
+    func testFiniteSourcesReportSamplesThenCompletion() throws {
+        let samples = MockSensorSource(
+            configuration: .init(seed: 5, duration: 0.02)
+        ).generate()
+        let source = ReplaySensorSource(samples: samples)
+        var events: [SensorSourceEvent] = []
+
+        try source.start { events.append($0) }
+
+        XCTAssertEqual(events.dropLast(), samples.map(SensorSourceEvent.sample))
+        XCTAssertEqual(events.last, .completed)
     }
 
     func testProcessingQueueDeliversInOrderOffMainThread() {

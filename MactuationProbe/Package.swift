@@ -10,11 +10,13 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "mactuation-probe",
-            dependencies: ["MactuationCore"],
+            dependencies: [
+                .product(name: "MactuationCore", package: "MactuationCore"),
+                .product(name: "MactuationHardware", package: "MactuationCore")
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
-                .linkedFramework("CoreMotion"),
-                .linkedFramework("IOKit")
+                .linkedFramework("CoreMotion")
             ]
         )
     ]

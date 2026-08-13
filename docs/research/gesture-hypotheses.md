@@ -1,16 +1,15 @@
 # Gesture Hypotheses
 
-Concrete, falsifiable hypotheses for the physical inputs Mactivate wants to recognize. Each has an explicit **failure criterion** — the local evidence that would kill or force a rethink of the hypothesis. This exists so the [Local Probe Plan](../local-probe-plan.md) collects data that can actually settle these questions, rather than confirming what we hoped.
+Research record for the physical inputs explored by Mactivate. Each hypothesis has an explicit failure criterion so measurements can disprove attractive ideas instead of merely confirming them.
 
-**Nothing here is validated.** Confidence reflects strength of external prior art, not local measurement.
+This file preserves technical findings; it does not define current product scope. See the root README for the MVP contract.
 
-## Current product boundary
+## Current research verdicts
 
-*(Narrowed 2026-07-24 by probe evidence — see the [Decision Log](../decision-log.md).)* The v1 product recognizes only:
-
-- single, double, or triple taps on the MacBook palm rest (either side, per-side calibrated), detected via the SPU accelerometer.
-
-Hand-near workspace opening (H-HAND-NEAR) and desk taps (H-TAP-DESK) were cut from v1 on measured evidence: stationary-machine shadows dominate deliberate hovers for an ALS-only detector, and desk knocks are inseparable from typing and bumps on every time-domain and spectral feature. Per-tap lateral palm regions (H-TAP-REGION) were refuted earlier the same day. Cross-region sequences, arbitrary rhythms, lid gestures, and device movement/orientation gestures remain out of scope. Camera and microphone fallbacks remain out of v1: the preferred accelerometer path is validated, and they carry privacy cost and macOS privacy indicators.
+- **Palm-rest taps:** supported on the measured Mac14,2. Comfortable single/double/triple taps are the strongest interaction candidate.
+- **Nearby-table taps:** detectable but not separable from typing and desk bumps on the measured features.
+- **Left/right/center localization:** refuted on the target machine; side labels remain calibration provenance, not runtime regions.
+- **ALS hand hover:** physically detectable in favorable light, but not reliably separable from ordinary shadows and unavailable near the sensor's dim-light floor. The MVP uses it only as a best-effort panel-opening convenience with manual fallback.
 
 ## Shared assumptions (must hold, or the preferred tap path weakens)
 
@@ -20,15 +19,14 @@ Hand-near workspace opening (H-HAND-NEAR) and desk taps (H-TAP-DESK) were cut fr
 
 Common signal-processing toolkit available from prior art: gravity removal (Kalman/high-pass), band-pass filtering, magnitude, onset detection (dual-EMA fast/slow ratio, STA/LTA, CUSUM), peak detection, timing-window grouping, and confidence scoring. See [Prior Art](prior-art.md).
 
-## Determinism and reliability gates
+## Engineering invariants
 
 - Replaying identical recorded samples with identical versioned calibration and classifier settings must produce identical classified events.
 - Single/double/triple resolution uses an explicit timing state machine. An action fires only after the configured sequence window resolves, so a single tap cannot fire and then be reinterpreted as a double tap.
-- Every accepted event has one stable region, tap count, timestamp, confidence, and event ID; action dispatch deduplicates by event ID.
+- Every accepted event has a stable tap count, timestamp, confidence, and event ID; action dispatch deduplicates by event ID.
 - Ambiguous, overlapping, stale, or low-confidence candidates are rejected rather than guessed.
-- The initial probe explores feasibility. Product qualification additionally requires repeated sessions and at least 100 labelled attempts per supported tap count/region and hand-near condition.
-- Minimum qualification targets are ≥95% deliberate-input recall, ≥99% precision, and zero unintended action firings during an eight-hour representative idle/typing/trackpad/bump run. Results are reported per hardware model, surface, sensor path, and lighting condition rather than averaged into a misleading global score.
-- Sleep/wake, relaunch, temporary sensor loss, helper restart, and configuration reload must not create synthetic events or duplicate the last event.
+- A small repeated capture set covers intended taps plus typing, trackpad activity, rest, and desk bumps before changing classifier thresholds.
+- Relaunch and sleep/wake smoke tests must not create synthetic events or repeat the last action.
 
 ---
 
@@ -85,6 +83,6 @@ Common signal-processing toolkit available from prior art: gravity removal (Kalm
   - Natural lighting variation produces drops comparable to a deliberate hand cover, making false positives unavoidable — **fully met (2026-07-24):** dynamic conditions (light toggles, walking through the beam, lid moves, carrying) produce hover-indistinguishable drops for an ALS-only detector, and the stationary-machine trial shows walking/leaning shadows are *deeper and longer-dwelling* than deliberate hovers with zero machine motion for the IMU to gate on. This criterion is met in every measured environment.
   - **(New, measured)** Ambient light at the sensor's ~1 lux floor gives zero hover signal regardless of screen brightness — the gesture is unavailable in dim rooms, and the product must detect and surface this state rather than silently fail.
 
-## What the probe must produce to settle these
+## Evidence standard
 
-For every hypothesis above, the [Local Probe Plan](../local-probe-plan.md) must yield, at minimum: a **no-input baseline** recording, **labelled positive** recordings (per gesture, per intensity), and a **known false-positive** recording (sustained typing, trackpad use, being bumped). Without all three, "it detected my tap" is not evidence — it cannot distinguish a working detector from one that fires on everything.
+Every gesture claim needs, at minimum: a **no-input baseline**, **labelled positive recordings**, and a **known false-positive recording** such as typing, trackpad use, shadows, or desk bumps. Without all three, "it detected my gesture" is not evidence—it cannot distinguish a useful detector from one that fires on everything.
