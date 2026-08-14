@@ -240,7 +240,9 @@ final class AppCoordinator {
             setQuickAction: { [weak self] index, identifier in
                 self?.setQuickAction(index: index, identifier: identifier)
             },
-            addApplication: { [weak self] in self?.addApplication() },
+            addApplication: { [weak self] in
+                self?.addApplication() ?? false
+            },
             addWebURL: { [weak self] name, value in
                 self?.addWebURL(name: name, value: value) ?? false
             },
@@ -466,25 +468,28 @@ final class AppCoordinator {
         }
     }
 
-    private func addApplication() {
+    @discardableResult
+    private func addApplication() -> Bool {
         let openPanel = NSOpenPanel()
         openPanel.allowedContentTypes = [.application]
         openPanel.allowsMultipleSelection = false
         openPanel.canChooseDirectories = false
         openPanel.prompt = "Add Application"
-        guard openPanel.runModal() == .OK,
-              let url = openPanel.url,
+        guard openPanel.runModal() == .OK else { return false }
+        guard let url = openPanel.url,
               let bundle = Bundle(url: url),
               let identifier = bundle.bundleIdentifier else {
             state.actionError = "The selected application has no bundle identifier."
-            return
+            return false
         }
         let name = bundle.object(
             forInfoDictionaryKey: "CFBundleDisplayName"
         ) as? String ?? bundle.object(
             forInfoDictionaryKey: "CFBundleName"
         ) as? String ?? url.deletingPathExtension().lastPathComponent
-        addAction(.application(name: name, bundleIdentifier: identifier))
+        return addAction(
+            .application(name: name, bundleIdentifier: identifier)
+        )
     }
 
     @discardableResult
