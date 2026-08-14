@@ -86,9 +86,11 @@ public final class SPUIMUSource: SensorSource {
     private let lifecycleLock = NSLock()
     private let statisticsLock = NSLock()
     private let startupReportInterval: Int?
+    private let allowMissingGyroscope: Bool
     private let registryServices: [SensorPath: SPURegistryService]
     private let deviceServices: [SensorPath: SPURegistryService]
     private var channels: [IMUChannel] = []
+    private var disabledPaths: Set<SensorPath> = []
     private var eventHandler: ((SensorSourceEvent) -> Void)?
     private var workerThread: Thread?
     private var workerRunLoop: CFRunLoop?
@@ -112,8 +114,11 @@ public final class SPUIMUSource: SensorSource {
     private var _wakePropertiesSet: [String] = []
     private var _reportIntervalUsed: Int?
 
-    public init(includeGyroscope: Bool,
-                startupReportInterval: Int? = nil) throws {
+    public init(
+        includeGyroscope: Bool,
+        allowMissingGyroscope: Bool = false,
+        startupReportInterval: Int? = nil
+    ) throws {
         if let startupReportInterval, startupReportInterval <= 0 {
             throw HardwareError.invalidConfiguration(
                 "startup report interval must be a positive number of microseconds"
@@ -133,13 +138,17 @@ public final class SPUIMUSource: SensorSource {
                 $0.className == "AppleSPUHIDDevice" &&
                     $0.usagePage == 0xFF00 && $0.usage == usage
             }) else {
+                if path == .spuGyroscope && allowMissingGyroscope {
+                    continue
+                }
                 throw HardwareError.deviceAbsent(path)
             }
             drivers[path] = driver
             devices[path] = device
         }
         self.startupReportInterval = startupReportInterval
-        paths = requested
+        self.allowMissingGyroscope = allowMissingGyroscope
+        paths = requested.filter { drivers[$0] != nil && devices[$0] != nil }
         registryServices = drivers
         deviceServices = devices
     }
@@ -159,6 +168,7 @@ public final class SPUIMUSource: SensorSource {
                 throw SensorSourceError.alreadyStarted
             }
             running = true
+            disabledPaths.removeAll(keepingCapacity: true)
             eventHandler = handler
             startUptime = ProcessInfo.processInfo.systemUptime
             resetStatistics()
@@ -426,40 +436,66 @@ public final class SPUIMUSource: SensorSource {
         lifecycleLock.withLock { workerRunLoop = runLoop }
         do {
             for path in paths {
-                guard let service = deviceServices[path],
-                      let device = IOHIDDeviceCreate(kCFAllocatorDefault, service.entry) else {
-                    throw HardwareError.deviceAbsent(path)
+                do {
+                    try prepareChannel(path: path, on: runLoop)
+                } catch {
+                    guard path == .spuGyroscope,
+                          allowMissingGyroscope else {
+                        throw error
+                    }
+                    disabledPaths.insert(path)
+                    emit(.failed(
+                        path: path,
+                        reason: "optional gyroscope failed to start: \(error)"
+                    ))
                 }
-                let openResult = IOHIDDeviceOpen(
-                    device, IOOptionBits(kIOHIDOptionsTypeNone)
-                )
-                guard openResult == kIOReturnSuccess else {
-                    throw HardwareError.openFailed(path: path, result: openResult)
-                }
-                let advertisedLength = service.number("MaxInputReportSize")?.intValue ?? 64
-                let bufferLength = max(64, advertisedLength)
-                let channel = IMUChannel(
-                    owner: self,
-                    path: path,
-                    device: device,
-                    reportBufferLength: bufferLength
-                )
-                channels.append(channel)
-                IOHIDDeviceRegisterInputReportCallback(
-                    device,
-                    channel.reportBuffer,
-                    bufferLength,
-                    imuInputReportCallback,
-                    Unmanaged.passUnretained(channel).toOpaque()
-                )
-                IOHIDDeviceScheduleWithRunLoop(
-                    device, runLoop, CFRunLoopMode.defaultMode.rawValue
-                )
             }
         } catch {
             closeDevices(on: runLoop)
             throw error
         }
+    }
+
+    private func prepareChannel(
+        path: SensorPath,
+        on runLoop: CFRunLoop
+    ) throws {
+        guard let service = deviceServices[path],
+              let device = IOHIDDeviceCreate(
+                kCFAllocatorDefault,
+                service.entry
+              ) else {
+            throw HardwareError.deviceAbsent(path)
+        }
+        let openResult = IOHIDDeviceOpen(
+            device,
+            IOOptionBits(kIOHIDOptionsTypeNone)
+        )
+        guard openResult == kIOReturnSuccess else {
+            throw HardwareError.openFailed(path: path, result: openResult)
+        }
+        let advertisedLength =
+            service.number("MaxInputReportSize")?.intValue ?? 64
+        let bufferLength = max(64, advertisedLength)
+        let channel = IMUChannel(
+            owner: self,
+            path: path,
+            device: device,
+            reportBufferLength: bufferLength
+        )
+        channels.append(channel)
+        IOHIDDeviceRegisterInputReportCallback(
+            device,
+            channel.reportBuffer,
+            bufferLength,
+            imuInputReportCallback,
+            Unmanaged.passUnretained(channel).toOpaque()
+        )
+        IOHIDDeviceScheduleWithRunLoop(
+            device,
+            runLoop,
+            CFRunLoopMode.defaultMode.rawValue
+        )
     }
 
     private func handleUnexpectedWorkerExit(on runLoop: CFRunLoop) {
@@ -492,7 +528,13 @@ public final class SPUIMUSource: SensorSource {
     }
 
     private func applyWakeSequenceOnWorker(reportInterval: Int) throws {
-        guard totalReportCount == 0 else { return }
+        let pathsNeedingWake = statisticsLock.withLock {
+            paths.filter {
+                !disabledPaths.contains($0) &&
+                    reportCounts[$0, default: 0] == 0
+            }
+        }
+        guard !pathsNeedingWake.isEmpty else { return }
         statisticsLock.withLock { _wakeRequired = true }
 
         let desired: [(String, AnyObject)] = [
@@ -501,42 +543,69 @@ public final class SPUIMUSource: SensorSource {
             ("ReportInterval", NSNumber(value: Int32(reportInterval)))
         ]
 
-        for path in paths {
-            guard let service = registryServices[path] else { continue }
-            var snapshots: [String: AnyObject] = [:]
-            for (key, _) in desired {
-                if let value = service.property(key) {
-                    snapshots[key] = value
-                } else if key == "ReportInterval" {
+        for path in pathsNeedingWake {
+            do {
+                try applyWakeSequence(
+                    to: path,
+                    desired: desired
+                )
+            } catch {
+                restoreProperties(for: path)
+                guard path == .spuGyroscope,
+                      allowMissingGyroscope else {
                     restoreProperties()
-                    throw HardwareError.wakeFailed(
-                        "\(path.rawValue) has no readable pre-existing ReportInterval"
-                    )
-                } else {
-                    snapshots[key] = NSNumber(value: Int32(0))
+                    throw error
                 }
-            }
-            savedProperties[path] = snapshots
-
-            for (key, value) in desired {
-                let result = service.setProperty(key, value: value)
-                guard result == KERN_SUCCESS else {
-                    restoreProperties()
-                    throw HardwareError.propertySetFailed(
-                        path: path, key: key, result: result
-                    )
+                disabledPaths.insert(path)
+                if let runLoop = CFRunLoopGetCurrent() {
+                    closeChannel(path: path, on: runLoop)
                 }
-                changedProperties[path, default: []].append(key)
-                writtenProperties[path, default: [:]][key] = value
-                statisticsLock.withLock {
-                    if !_wakePropertiesSet.contains(key) {
-                        _wakePropertiesSet.append(key)
-                    }
-                }
+                emit(.failed(
+                    path: path,
+                    reason: "optional gyroscope wake failed: \(error)"
+                ))
             }
         }
         statisticsLock.withLock {
             _reportIntervalUsed = reportInterval
+        }
+    }
+
+    private func applyWakeSequence(
+        to path: SensorPath,
+        desired: [(String, AnyObject)]
+    ) throws {
+        guard let service = registryServices[path] else { return }
+        var snapshots: [String: AnyObject] = [:]
+        for (key, _) in desired {
+            if let value = service.property(key) {
+                snapshots[key] = value
+            } else if key == "ReportInterval" {
+                throw HardwareError.wakeFailed(
+                    "\(path.rawValue) has no readable pre-existing ReportInterval"
+                )
+            } else {
+                snapshots[key] = NSNumber(value: Int32(0))
+            }
+        }
+        savedProperties[path] = snapshots
+
+        for (key, value) in desired {
+            let result = service.setProperty(key, value: value)
+            guard result == KERN_SUCCESS else {
+                throw HardwareError.propertySetFailed(
+                    path: path,
+                    key: key,
+                    result: result
+                )
+            }
+            changedProperties[path, default: []].append(key)
+            writtenProperties[path, default: [:]][key] = value
+            statisticsLock.withLock {
+                if !_wakePropertiesSet.contains(key) {
+                    _wakePropertiesSet.append(key)
+                }
+            }
         }
     }
 
@@ -552,37 +621,66 @@ public final class SPUIMUSource: SensorSource {
         channels.removeAll()
     }
 
+    private func closeChannel(path: SensorPath, on runLoop: CFRunLoop) {
+        guard let index = channels.firstIndex(where: {
+            $0.path == path
+        }) else {
+            return
+        }
+        let channel = channels.remove(at: index)
+        IOHIDDeviceUnscheduleFromRunLoop(
+            channel.device,
+            runLoop,
+            CFRunLoopMode.defaultMode.rawValue
+        )
+        IOHIDDeviceClose(
+            channel.device,
+            IOOptionBits(kIOHIDOptionsTypeNone)
+        )
+    }
+
     private func restoreProperties() {
         for path in paths.reversed() {
-            guard let service = registryServices[path],
-                  let keys = changedProperties[path],
-                  let snapshots = savedProperties[path],
-                  let written = writtenProperties[path] else { continue }
-            for key in keys.reversed() {
-                guard let oldValue = snapshots[key],
-                      let writtenValue = written[key] else { continue }
-                if service.property(key, equals: oldValue) {
-                    continue
-                }
-                guard service.property(key, equals: writtenValue) else {
-                    emit(.warning(
-                        path: path,
-                        message: "not restoring \(key): value changed after acquisition"
-                    ))
-                    continue
-                }
-                let result = service.setProperty(key, value: oldValue)
-                if result != KERN_SUCCESS {
-                    emit(.warning(
-                        path: path,
-                        message: "failed to restore \(key): \(ioResult(result))"
-                    ))
-                }
-            }
+            restoreProperties(for: path)
         }
         changedProperties.removeAll()
         writtenProperties.removeAll()
         savedProperties.removeAll()
+    }
+
+    private func restoreProperties(for path: SensorPath) {
+        defer {
+            changedProperties[path] = nil
+            writtenProperties[path] = nil
+            savedProperties[path] = nil
+        }
+        guard let service = registryServices[path],
+              let keys = changedProperties[path],
+              let snapshots = savedProperties[path],
+              let written = writtenProperties[path] else {
+            return
+        }
+        for key in keys.reversed() {
+            guard let oldValue = snapshots[key],
+                  let writtenValue = written[key] else { continue }
+            if service.property(key, equals: oldValue) {
+                continue
+            }
+            guard service.property(key, equals: writtenValue) else {
+                emit(.warning(
+                    path: path,
+                    message: "not restoring \(key): value changed after acquisition"
+                ))
+                continue
+            }
+            let result = service.setProperty(key, value: oldValue)
+            if result != KERN_SUCCESS {
+                emit(.warning(
+                    path: path,
+                    message: "failed to restore \(key): \(ioResult(result))"
+                ))
+            }
+        }
     }
 
     private func performOnWorker(_ body: @escaping () throws -> Void) throws {

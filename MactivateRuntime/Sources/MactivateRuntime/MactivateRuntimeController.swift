@@ -14,6 +14,8 @@ public final class MactivateRuntimeController {
     private let queueKey = DispatchSpecificKey<UInt8>()
 
     private var tapClassifier: TapStreamClassifier
+    private let tapRegionClassifier: TapRegionStreamClassifier
+    private var tapRegionCalibrationProfile: TapRegionCalibrationProfile?
     private let panelDetector: AmbientLightDipDetector
 
     private var configuration: RuntimeConfiguration
@@ -41,6 +43,7 @@ public final class MactivateRuntimeController {
         lifecycleMonitor: any RuntimeLifecycleMonitoring =
             WorkspaceRuntimeLifecycleMonitor(),
         tapCalibration: TapCalibration = .mac14_2Discovery,
+        tapRegionCalibrationProfile: TapRegionCalibrationProfile? = nil,
         tapStreamConfiguration: TapStreamConfiguration = TapStreamConfiguration(),
         panelCalibration: AmbientLightDipCalibration = .mac14_2Experimental,
         runtimeQueue: DispatchQueue =
@@ -61,6 +64,9 @@ public final class MactivateRuntimeController {
             calibration: tapCalibration,
             configuration: tapStreamConfiguration
         )
+        tapRegionClassifier = try TapRegionStreamClassifier()
+        self.tapRegionCalibrationProfile = tapRegionCalibrationProfile?.isValid ==
+            true ? tapRegionCalibrationProfile : nil
         panelDetector = try AmbientLightDipDetector(
             calibration: panelCalibration
         )
@@ -71,6 +77,7 @@ public final class MactivateRuntimeController {
         snapshot = RuntimeSnapshot(
             lifecycle: .stopped,
             tap: .inactive,
+            tapRegion: .inactive,
             panelHint: configuration.panelHintsEnabled ? .inactive : .disabled
         )
         runtimeQueue.setSpecific(key: queueKey, value: 1)
@@ -122,11 +129,13 @@ public final class MactivateRuntimeController {
         }
     }
 
-    public func setTapBinding(_ action: ActionIdentifier?,
-                              for pattern: TapPattern) throws {
+    public func setSpatialTapBinding(
+        _ action: ActionIdentifier?,
+        for gesture: PalmTapGesture
+    ) throws {
         try withRuntimeQueue {
             var updated = configuration
-            updated.tapBindings[pattern] = action
+            updated.spatialTapBindings[gesture] = action
             try applyConfigurationLocked(updated)
         }
     }
@@ -149,10 +158,32 @@ public final class MactivateRuntimeController {
                 calibration: calibration,
                 configuration: tapClassifier.configuration
             )
+            tapRegionClassifier.reset()
             emittedTapIDs.removeAll(keepingCapacity: true)
             emittedTapFIFO.removeAll(keepingCapacity: true)
             if tapSource != nil {
                 snapshot.tap = .warmingUp
+                snapshot.tapRegion = .warmingUp
+                publishSnapshotIfChanged()
+            }
+        }
+    }
+
+    public func applyTapRegionCalibration(
+        _ profile: TapRegionCalibrationProfile?
+    ) throws {
+        try withRuntimeQueue {
+            if let profile, !profile.isValid {
+                throw RuntimeConfigurationStoreError.invalidConfiguration(
+                    "left/right calibration profile is invalid"
+                )
+            }
+            tapRegionCalibrationProfile = profile
+            tapRegionClassifier.reset()
+            emittedTapIDs.removeAll(keepingCapacity: true)
+            emittedTapFIFO.removeAll(keepingCapacity: true)
+            if tapSource != nil {
+                snapshot.tapRegion = .warmingUp
                 publishSnapshotIfChanged()
             }
         }
@@ -217,6 +248,7 @@ public final class MactivateRuntimeController {
         emittedTapIDs.removeAll(keepingCapacity: true)
         emittedTapFIFO.removeAll(keepingCapacity: true)
         tapClassifier.reset()
+        tapRegionClassifier.reset()
         panelDetector.reset()
     }
 
@@ -224,12 +256,20 @@ public final class MactivateRuntimeController {
         tapGeneration &+= 1
         let generation = tapGeneration
         tapClassifier.reset()
+        tapRegionClassifier.reset()
         snapshot.tap = .warmingUp
+        snapshot.tapRegion = .warmingUp
         publishSnapshotIfChanged()
 
         do {
             let source = try sourceFactory.makeTapSource()
             tapSource = source
+            if !source.paths.contains(.spuGyroscope) {
+                snapshot.tapRegion = .unavailable(
+                    reason: "Gyroscope is unavailable on this Mac."
+                )
+                publishSnapshotIfChanged()
+            }
             try source.start { [weak self] event in
                 self?.runtimeQueue.async { [weak self] in
                     self?.handleTapSourceEvent(event, generation: generation)
@@ -241,7 +281,9 @@ public final class MactivateRuntimeController {
             tapGeneration &+= 1
             failedSource?.stop()
             tapClassifier.reset()
+            tapRegionClassifier.reset()
             snapshot.tap = .unavailable(reason: String(describing: error))
+            snapshot.tapRegion = .unavailable(reason: String(describing: error))
             publishSnapshotIfChanged()
         }
     }
@@ -282,7 +324,9 @@ public final class MactivateRuntimeController {
         tapSource = nil
         source?.stop()
         tapClassifier.reset()
+        tapRegionClassifier.reset()
         snapshot.tap = finalState
+        snapshot.tapRegion = .inactive
         publishSnapshotIfChanged()
     }
 
@@ -301,9 +345,23 @@ public final class MactivateRuntimeController {
         guard generation == tapGeneration, tapSource != nil else { return }
         switch event {
         case .sample(let sample):
-            guard case .imu(let path, let imu) = sample,
-                  path == .spuAccelerometer else { return }
+            guard case .imu(let path, let imu) = sample else { return }
             do {
+                if path == .spuGyroscope {
+                    try tapRegionClassifier.append(sample)
+                    let regionState: TapRegionFeatureState
+                    if let profile = tapRegionCalibrationProfile {
+                        regionState = .available(profileVersion: profile.version)
+                    } else {
+                        regionState = .needsCalibration
+                    }
+                    if snapshot.tapRegion != regionState {
+                        snapshot.tapRegion = regionState
+                        publishSnapshotIfChanged()
+                    }
+                    return
+                }
+                guard path == .spuAccelerometer else { return }
                 let update = try tapClassifier.appendWithFeedback(imu)
                 if let measuredRate = tapClassifier.sampleRateHz,
                    snapshot.tap != .available(measuredRateHz: measuredRate) {
@@ -331,8 +389,15 @@ public final class MactivateRuntimeController {
             } catch {
                 failTapSourceLocked(reason: String(describing: error))
             }
-        case .failed(_, let reason):
-            failTapSourceLocked(reason: reason)
+        case .failed(let path, let reason):
+            if path == .spuGyroscope {
+                tapRegionClassifier.reset()
+                snapshot.tapRegion = .unavailable(reason: reason)
+                publishSnapshotIfChanged()
+                emit(.warning(.source(path: path, message: reason)))
+            } else {
+                failTapSourceLocked(reason: reason)
+            }
         case .warning(let path, let message):
             emit(.warning(.source(path: path, message: message)))
         case .completed:
@@ -382,52 +447,11 @@ public final class MactivateRuntimeController {
     ) {
         guard let firstMember = group.members.first else { return }
         let latency = max(0, resolvedAt - firstMember.time)
-        let feedback: (
-            TapFeedbackOutcome,
-            TapPattern?,
-            ActionIdentifier?
-        )
-
         if !group.verdict.isAccepted {
-            feedback = (
-                .rejected(group.rejectionReason ?? .comfortZImpulse),
-                nil,
-                nil
-            )
-        } else if let pattern = TapPattern(rawValue: group.members.count) {
-            if let action = configuration.tapBindings[pattern] {
-                feedback = (
-                    .dispatched(pattern: pattern, action: action),
-                    pattern,
-                    action
-                )
-            } else {
-                feedback = (.acceptedUnmapped(pattern), pattern, nil)
-            }
-        } else {
-            feedback = (.rejected(.tooManyMembers), nil, nil)
-        }
-
-        let baseFeedback = TapFeedback(
-            outcome: feedback.0,
-            memberCount: group.members.count,
-            features: firstMember,
-            sensorTimestamp: firstMember.time,
-            resolutionLatencyS: latency
-        )
-        guard let pattern = feedback.1, let action = feedback.2 else {
-            emit(.tapFeedback(baseFeedback))
-            return
-        }
-        let eventID = RuntimeEventID(
-            sessionID: sensorSessionID,
-            classifierEventID: group.eventID(
-                calibrationVersion: tapClassifier.classifier.calibration.version
-            )
-        )
-        guard reserveTapEventIDLocked(eventID) else {
             emit(.tapFeedback(TapFeedback(
-                outcome: .duplicate(pattern),
+                outcome: .rejected(
+                    group.rejectionReason ?? .comfortZImpulse
+                ),
                 memberCount: group.members.count,
                 features: firstMember,
                 sensorTimestamp: firstMember.time,
@@ -435,13 +459,191 @@ public final class MactivateRuntimeController {
             )))
             return
         }
-        emit(.tapFeedback(baseFeedback))
+        guard let pattern = TapPattern(rawValue: group.members.count) else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .rejected(.tooManyMembers),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency
+            )))
+            return
+        }
+        guard pattern != .single else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .acceptedNonActionable(.single),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency
+            )))
+            return
+        }
+        let regionPattern: TapRegionPattern =
+            pattern == .double ? .double : .triple
+        let rawFeatures: (
+            members: [TapRegionMemberFeature],
+            median: Double
+        )
+        do {
+            rawFeatures = try tapRegionClassifier.features(for: group)
+        } catch {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .spatialUnavailable(
+                    pattern: regionPattern,
+                    reason: .insufficientGyroscopeData
+                ),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionMemberFeatures: [],
+                regionReason: .insufficientGyroscopeData
+            )))
+            return
+        }
+        guard tapClassifier.classifier.calibration.version
+            .hasPrefix("personal-") else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .spatialUnavailable(
+                    pattern: regionPattern,
+                    reason: .tapCalibrationRequired
+                ),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: .unknown,
+                regionMemberFeatures: rawFeatures.members.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: rawFeatures.median,
+                regionReason: .ambiguous
+            )))
+            return
+        }
+        guard let regionProfile = tapRegionCalibrationProfile else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .spatialUnavailable(
+                    pattern: regionPattern,
+                    reason: .calibrationRequired
+                ),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: .unknown,
+                regionMemberFeatures: rawFeatures.members.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: rawFeatures.median,
+                regionReason: .ambiguous
+            )))
+            return
+        }
+        let classification = tapRegionClassifier.classify(
+            group: group,
+            profile: regionProfile
+        )
+        guard let side = classification.prediction.side else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .spatialUnavailable(
+                    pattern: regionPattern,
+                    reason: spatialUnavailableReason(
+                        for: classification.reason
+                    )
+                ),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: classification.prediction,
+                regionMemberFeatures: classification.memberFeatures.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: classification.aggregatedFeature,
+                regionProfileVersion: classification.profileVersion,
+                regionReason: classification.reason
+            )))
+            return
+        }
+        let gesture = PalmTapGesture(side: side, pattern: regionPattern)
+        guard let action = configuration.spatialTapBindings[gesture] else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .acceptedUnmapped(gesture),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: classification.prediction,
+                regionMemberFeatures: classification.memberFeatures.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: classification.aggregatedFeature,
+                regionProfileVersion: classification.profileVersion,
+                regionReason: classification.reason
+            )))
+            return
+        }
+        let eventID = RuntimeEventID(
+            sessionID: sensorSessionID,
+            classifierEventID: group.eventID(
+                calibrationVersion:
+                    "\(tapClassifier.classifier.calibration.version)|" +
+                    "\(regionProfile.version)|\(side.rawValue)-" +
+                    regionPattern.rawValue
+            )
+        )
+        guard reserveTapEventIDLocked(eventID) else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .duplicate(gesture),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: classification.prediction,
+                regionMemberFeatures: classification.memberFeatures.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: classification.aggregatedFeature,
+                regionProfileVersion: classification.profileVersion,
+                regionReason: classification.reason
+            )))
+            return
+        }
+        emit(.tapFeedback(TapFeedback(
+            outcome: .dispatched(gesture: gesture, action: action),
+            memberCount: group.members.count,
+            features: firstMember,
+            sensorTimestamp: firstMember.time,
+            resolutionLatencyS: latency,
+            regionPrediction: classification.prediction,
+            regionMemberFeatures: classification.memberFeatures.map(
+                \.gyroXPeakBalanceDegS
+            ),
+            regionFeature: classification.aggregatedFeature,
+            regionProfileVersion: classification.profileVersion,
+            regionReason: classification.reason
+        )))
         let trigger = TapTrigger(
             eventID: eventID,
-            pattern: pattern,
-            sensorTimestamp: firstMember.time
+            gesture: gesture,
+            sensorTimestamp: firstMember.time,
+            regionProfileVersion: regionProfile.version
         )
         emit(.intent(.performAction(id: action, trigger: trigger)))
+    }
+
+    private func spatialUnavailableReason(
+        for reason: TapRegionResolutionReason
+    ) -> SpatialTapUnavailableReason {
+        switch reason {
+        case .invalidProfile: return .invalidProfile
+        case .insufficientGyroscopeData: return .insufficientGyroscopeData
+        case .ambiguous: return .ambiguous
+        case .unsupportedTapCount: return .insufficientGyroscopeData
+        case .resolved: return .ambiguous
+        }
     }
 
     private func reserveTapEventIDLocked(_ eventID: RuntimeEventID) -> Bool {
@@ -463,7 +665,9 @@ public final class MactivateRuntimeController {
         tapSource = nil
         source?.stop()
         tapClassifier.reset()
+        tapRegionClassifier.reset()
         snapshot.tap = .unavailable(reason: reason)
+        snapshot.tapRegion = .unavailable(reason: reason)
         publishSnapshotIfChanged()
     }
 

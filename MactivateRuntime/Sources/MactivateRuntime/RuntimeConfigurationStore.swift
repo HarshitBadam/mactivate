@@ -36,6 +36,12 @@ public final class UserDefaultsRuntimeConfigurationStore:
         let schemaVersion: Int
     }
 
+    private struct VersionOneConfiguration: Decodable {
+        let schemaVersion: Int
+        let tapBindings: TapBindings
+        let panelHintsEnabled: Bool
+    }
+
     private let defaults: UserDefaults
     private let key: String
 
@@ -52,7 +58,20 @@ public final class UserDefaultsRuntimeConfigurationStore:
         do {
             let decoder = JSONDecoder()
             let schema = try decoder.decode(SchemaProbe.self, from: data)
-            guard schema.schemaVersion == RuntimeConfiguration.currentSchemaVersion else {
+            if schema.schemaVersion == 1 {
+                let legacy = try decoder.decode(
+                    VersionOneConfiguration.self,
+                    from: data
+                )
+                let migrated = RuntimeConfiguration(
+                    spatialTapBindings: SpatialTapBindings(),
+                    panelHintsEnabled: legacy.panelHintsEnabled
+                )
+                try save(migrated)
+                return .loaded(migrated)
+            }
+            guard schema.schemaVersion ==
+                    RuntimeConfiguration.currentSchemaVersion else {
                 return .invalid(
                     failClosed: .failClosed,
                     reason: "unsupported runtime configuration schema " +
@@ -83,7 +102,7 @@ public final class UserDefaultsRuntimeConfigurationStore:
         guard configuration.isCurrentAndValid else {
             throw RuntimeConfigurationStoreError.invalidConfiguration(
                 "only schema \(RuntimeConfiguration.currentSchemaVersion) with " +
-                    "non-empty action identifiers can be saved"
+                    "valid spatial action identifiers can be saved"
             )
         }
         let encoder = JSONEncoder()

@@ -6,15 +6,26 @@ protocol RuntimeControlling: AnyObject {
     var currentConfiguration: RuntimeConfiguration { get }
     var currentSnapshot: RuntimeSnapshot { get }
     var currentTapCalibrationProfile: RuntimeTapCalibrationProfile? { get }
+    var currentTapRegionCalibrationProfile: RuntimeTapRegionCalibrationProfile? {
+        get
+    }
     var tapCalibrationWarning: String? { get }
+    var tapRegionCalibrationWarning: String? { get }
 
     func start()
     func stop()
-    func setTapBinding(_ action: ActionIdentifier?, for pattern: TapPattern) throws
+    func setSpatialTapBinding(
+        _ action: ActionIdentifier?,
+        for gesture: PalmTapGesture
+    ) throws
     func setPanelHintsEnabled(_ enabled: Bool) throws
     func resetConfiguration() throws
     func applyTapCalibration(_ profile: RuntimeTapCalibrationProfile) throws
     func resetTapCalibration() throws
+    func applyTapRegionCalibration(
+        _ profile: RuntimeTapRegionCalibrationProfile
+    ) throws
+    func resetTapRegionCalibration() throws
 }
 
 final class RuntimeBridge: RuntimeControlling {
@@ -25,23 +36,40 @@ final class RuntimeBridge: RuntimeControlling {
         qos: .utility
     )
     private let calibrationStore: any TapCalibrationProfileStore
+    private let regionCalibrationStore: any TapRegionCalibrationProfileStore
     private var controller: MactivateRuntimeController?
     private var calibrationProfile: RuntimeTapCalibrationProfile?
+    private var regionCalibrationProfile: RuntimeTapRegionCalibrationProfile?
     private(set) var tapCalibrationWarning: String?
+    private(set) var tapRegionCalibrationWarning: String?
 
     init(
         calibrationStore: any TapCalibrationProfileStore =
-            UserDefaultsTapCalibrationProfileStore()
+            UserDefaultsTapCalibrationProfileStore(),
+        regionCalibrationStore: any TapRegionCalibrationProfileStore =
+            UserDefaultsTapRegionCalibrationProfileStore(),
+        sourceFactory: any RuntimeSourceCreating = LiveRuntimeFactory(
+            includeGyroscope:
+                ProcessInfo.processInfo.environment[
+                    "MACTIVATE_FORCE_NO_GYRO"
+                ] != "1"
+        )
     ) throws {
         self.calibrationStore = calibrationStore
+        self.regionCalibrationStore = regionCalibrationStore
         let loadResult = calibrationStore.load()
+        let regionLoadResult = regionCalibrationStore.load()
         calibrationProfile = loadResult.profile
+        regionCalibrationProfile = regionLoadResult.profile
         if case .invalid(let warning) = loadResult {
             tapCalibrationWarning = warning
         }
+        tapRegionCalibrationWarning = regionLoadResult.warning
         controller = try MactivateRuntimeController(
+            sourceFactory: sourceFactory,
             tapCalibration: loadResult.profile?.calibration ??
-                .mac14_2Discovery
+                .mac14_2Discovery,
+            tapRegionCalibrationProfile: regionLoadResult.profile
         ) { [weak self] output in
             self?.outputHandler?(output)
         }
@@ -63,6 +91,11 @@ final class RuntimeBridge: RuntimeControlling {
         lifecycleQueue.sync { calibrationProfile }
     }
 
+    var currentTapRegionCalibrationProfile:
+        RuntimeTapRegionCalibrationProfile? {
+        lifecycleQueue.sync { regionCalibrationProfile }
+    }
+
     func start() {
         lifecycleQueue.async(qos: .utility, flags: .enforceQoS) { [controller] in
             controller?.start()
@@ -75,10 +108,12 @@ final class RuntimeBridge: RuntimeControlling {
         }
     }
 
-    func setTapBinding(_ action: ActionIdentifier?,
-                       for pattern: TapPattern) throws {
+    func setSpatialTapBinding(
+        _ action: ActionIdentifier?,
+        for gesture: PalmTapGesture
+    ) throws {
         try lifecycleQueue.sync {
-            try controller?.setTapBinding(action, for: pattern)
+            try controller?.setSpatialTapBinding(action, for: gesture)
         }
     }
 
@@ -109,6 +144,26 @@ final class RuntimeBridge: RuntimeControlling {
             try controller?.applyTapCalibration(.mac14_2Discovery)
             calibrationProfile = nil
             tapCalibrationWarning = nil
+        }
+    }
+
+    func applyTapRegionCalibration(
+        _ profile: RuntimeTapRegionCalibrationProfile
+    ) throws {
+        try lifecycleQueue.sync {
+            try regionCalibrationStore.save(profile)
+            try controller?.applyTapRegionCalibration(profile)
+            regionCalibrationProfile = profile
+            tapRegionCalibrationWarning = nil
+        }
+    }
+
+    func resetTapRegionCalibration() throws {
+        try lifecycleQueue.sync {
+            regionCalibrationStore.reset()
+            try controller?.applyTapRegionCalibration(nil)
+            regionCalibrationProfile = nil
+            tapRegionCalibrationWarning = nil
         }
     }
 }

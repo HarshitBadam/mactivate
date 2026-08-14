@@ -16,13 +16,13 @@ All deterministic tests run without sensor access. Hardware access remains a gui
 - **Mock source** (`MockSensorSource.swift`) — seeded synthetic streams shaped like the gesture-hypotheses signatures, for tests and offline pipeline work. Mock data is never a capability claim.
 - **Processing isolation** (`SensorProcessingQueue.swift`) — a serial, user-initiated queue for processing samples off the main thread in delivery order.
 - **Source lifecycle** (`SensorSource.swift`) — one acquisition boundary for samples, asynchronous failures, completion, and restoration warnings.
-- **Palm-tap classification** (`Classification/`) — deterministic batch and bounded-live classifiers with versioned calibration, safe commit boundaries, explicit replay finalization, and single/double/triple palm-rest groups.
+- **Palm-tap classification** (`Classification/`) — deterministic batch and bounded-live accelerometer classifiers with versioned calibration, safe commit boundaries, explicit replay finalization, and single/double/triple palm-rest groups. The production region stage extracts the qualified gyro-X peak-balance feature at accepted member timestamps, aggregates members by median, and fails closed through a calibrated guard band; broader probe analyzers remain available for research.
 - **ALS panel hint** (`Classification/`) — a deterministic, versioned ambient-light dip detector with warm-up, dim-light, recovery, and cooldown behavior. It emits a non-actionable hint and does not claim to identify a hand.
 - **Committed fixtures** (`Tests/MactuationCoreTests/Fixtures/`) — compact sanitized IMU/ALS regressions that run in a clean clone; the larger local capture library remains ignored.
 
 ## MactuationHardware
 
-- `SPUIMUSource` owns its HID RunLoop thread, delivers accelerometer samples, and restores wake properties on shutdown.
+- `SPUIMUSource` owns its HID RunLoop thread, can deliver accelerometer and gyroscope samples, and restores each path's wake properties on shutdown.
 - `RegistryALSSource` polls the live `CurrentLux` property and restores an optional report-interval override.
 - `SPUHardwareInspector` provides discovery and measured capability state without exposing registry handles.
 - Report decoding, invalid configuration, source lifecycle, and restoration behavior fail explicitly rather than being silently discarded.
@@ -38,4 +38,6 @@ swift test --package-path MactuationCore
 swift build --package-path MactuationProbe
 ```
 
-The validated hardware is a Mac14,2 MacBook Air M2. ALS hints are unavailable near the measured dim-light floor and ordinary stationary shadows can produce false positives; callers must always provide manual panel access.
+The validated hardware is a Mac14,2 MacBook Air M2. In one-user 2026-08-14 probe sessions, both IMU paths delivered at approximately 798 Hz and median aggregation of per-member `gyro_x_peak_balance_deg_s` transferred 40/40 left/right double/triple gestures to an independently repositioned capture. This is evidence for a production classifier, not a universal preset: callers must require per-user calibration and treat missing or ambiguous gyro classification as unknown.
+
+ALS hints are unavailable near the measured dim-light floor and ordinary stationary shadows can produce false positives; callers must always provide manual panel access.

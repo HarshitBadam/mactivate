@@ -10,6 +10,20 @@ public struct TapEventFeatures: Equatable, Sendable {
     public var zImpulseMgS: Double
     /// Absolute lateral ±25 ms impulse |x|+|y| (mg·s); the bump discriminator.
     public var lateralImpulseMgS: Double
+
+    public init(
+        time: SensorTimestamp,
+        peakG: Double,
+        decayMs: Double,
+        zImpulseMgS: Double,
+        lateralImpulseMgS: Double
+    ) {
+        self.time = time
+        self.peakG = peakG
+        self.decayMs = decayMs
+        self.zImpulseMgS = zImpulseMgS
+        self.lateralImpulseMgS = lateralImpulseMgS
+    }
 }
 
 /// How an event group cleared (or failed) the tiered accept gate.
@@ -17,8 +31,8 @@ public enum TapVerdict: Equatable, Sendable {
     /// Positive first-member Z-impulse and lateral impulse under the veto.
     case acceptedComfort
     /// First member cleared the named side's firm amplitude tier and its
-    /// scaled bump veto. The side names the calibration entry that matched,
-    /// not where the tap physically landed (unknowable — H-TAP-REGION refuted).
+    /// scaled bump veto. The side names the amplitude-calibration entry that
+    /// matched; spatial side is resolved separately from the gyroscope.
     case acceptedFirm(PalmSide)
     case rejected
 

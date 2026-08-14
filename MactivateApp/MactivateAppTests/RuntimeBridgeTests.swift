@@ -1,4 +1,5 @@
 import AppKit
+import MactuationCore
 import MactivateRuntime
 import SwiftUI
 import XCTest
@@ -17,6 +18,37 @@ final class RuntimeBridgeTests: XCTestCase {
 
         XCTAssertEqual(runtime.startCount, 1)
         XCTAssertEqual(runtime.stopCount, 1)
+    }
+
+    func testRuntimeBridgePersistsAndResetsRegionProfileIndependently()
+        throws {
+        let tapStore = InMemoryTapCalibrationProfileStore()
+        let regionStore = InMemoryTapRegionCalibrationProfileStore()
+        let bridge = try RuntimeBridge(
+            calibrationStore: tapStore,
+            regionCalibrationStore: regionStore
+        )
+        let profile = TapRegionCalibrationProfile(
+            version: "personal-region-bridge-test",
+            lowerBoundary: -1,
+            upperBoundary: 1,
+            lowerSide: .left,
+            samplesPerGesture: 5
+        )
+
+        try bridge.applyTapRegionCalibration(profile)
+
+        XCTAssertEqual(
+            bridge.currentTapRegionCalibrationProfile,
+            profile
+        )
+        XCTAssertEqual(regionStore.load(), .loaded(profile))
+        XCTAssertEqual(tapStore.load(), .missing)
+
+        try bridge.resetTapRegionCalibration()
+        XCTAssertNil(bridge.currentTapRegionCalibrationProfile)
+        XCTAssertEqual(regionStore.load(), .missing)
+        XCTAssertEqual(tapStore.load(), .missing)
     }
 
     func testPanelLifecycleUsesNotchSurfaceAdapter() async throws {
@@ -119,6 +151,44 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertTrue(coordinator.state.diagnosticText.contains("ALS missing"))
     }
 
+    func testSpatialDecisionDiagnosticsIncludeSideFeatureAndModel() {
+        let runtime = FakeRuntime()
+        let coordinator = makeCoordinator(runtime: runtime)
+
+        runtime.outputHandler?(.tapFeedback(TapFeedback(
+            outcome: .spatialUnavailable(
+                pattern: .double,
+                reason: .ambiguous
+            ),
+            memberCount: 2,
+            features: TapEventFeatures(
+                time: 1,
+                peakG: 0.1,
+                decayMs: 20,
+                zImpulseMgS: 0.1,
+                lateralImpulseMgS: 0.1
+            ),
+            sensorTimestamp: 1,
+            resolutionLatencyS: 1,
+            regionPrediction: .unknown,
+            regionMemberFeatures: [-1, 1],
+            regionFeature: 0,
+            regionProfileVersion: "personal-region-diagnostics",
+            regionReason: .ambiguous
+        )))
+
+        XCTAssertTrue(coordinator.state.diagnosticText.contains("side=unknown"))
+        XCTAssertTrue(coordinator.state.diagnosticText.contains("feature=0.00000"))
+        XCTAssertTrue(
+            coordinator.state.diagnosticText.contains(
+                "model=personal-region-diagnostics"
+            )
+        )
+        XCTAssertTrue(
+            coordinator.state.tapFeedbackDescription.contains("guard band")
+        )
+    }
+
     func testUnknownActionIdentifierFailsClosedWithoutExecuting() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
@@ -127,8 +197,9 @@ final class RuntimeBridgeTests: XCTestCase {
                 sessionID: UUID(),
                 classifierEventID: "tap-1"
             ),
-            pattern: .single,
-            sensorTimestamp: 1
+            gesture: .leftDouble,
+            sensorTimestamp: 1,
+            regionProfileVersion: "personal-region-test"
         )
 
         runtime.outputHandler?(.intent(.performAction(
@@ -152,8 +223,9 @@ final class RuntimeBridgeTests: XCTestCase {
                 sessionID: UUID(),
                 classifierEventID: "show-panel"
             ),
-            pattern: .single,
-            sensorTimestamp: 1
+            gesture: .leftDouble,
+            sensorTimestamp: 1,
+            regionProfileVersion: "personal-region-test"
         )
 
         runtime.outputHandler?(.intent(.performAction(
@@ -168,14 +240,17 @@ final class RuntimeBridgeTests: XCTestCase {
         panelController.dismiss()
     }
 
-    func testSetTapBindingUpdatesConfigurationOnSuccess() {
+    func testSetSpatialTapBindingUpdatesConfigurationOnSuccess() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
 
-        coordinator.setTapBinding("builtin.show-panel", pattern: .double)
+        coordinator.setSpatialTapBinding(
+            "builtin.show-panel",
+            gesture: .leftDouble
+        )
 
         XCTAssertEqual(
-            coordinator.state.configuration.tapBindings.double,
+            coordinator.state.configuration.spatialTapBindings.leftDouble,
             "builtin.show-panel"
         )
         XCTAssertNil(coordinator.state.recentWarning)
@@ -199,14 +274,86 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertEqual(coordinator.state.panelAssignableActions.count, 1)
     }
 
-    func testSetTapBindingSurfacesRuntimeFailureAsWarning() {
+    func testSetSpatialTapBindingSurfacesRuntimeFailureAsWarning() {
         let runtime = FakeRuntime()
-        runtime.setTapBindingError = TestFailure("rejected")
+        runtime.setSpatialTapBindingError = TestFailure("rejected")
         let coordinator = makeCoordinator(runtime: runtime)
 
-        coordinator.setTapBinding("builtin.show-panel", pattern: .single)
+        coordinator.setSpatialTapBinding(
+            "builtin.show-panel",
+            gesture: .rightTriple
+        )
 
         XCTAssertEqual(coordinator.state.recentWarning, "rejected")
+    }
+
+    func testRegionCalibrationAdvancesTargetsAndSavesQualifiedProfile() {
+        let runtime = FakeRuntime()
+        let coordinator = makeCoordinator(runtime: runtime)
+        coordinator.state.tapRegionCalibrationTarget =
+            TapRegionCalibrationTarget.ordered.first
+
+        for index in 0..<20 {
+            guard let target =
+                    coordinator.state.tapRegionCalibrationTarget else {
+                return XCTFail("calibration ended before 20 gestures")
+            }
+            let base = target.side == .left ? -3.0 : 3.0
+            let memberFeatures = (0..<target.pattern.memberCount).map {
+                base + Double(index % 5) * 0.01 + Double($0) * 0.02
+            }
+            runtime.outputHandler?(.tapFeedback(TapFeedback(
+                outcome: index == 19
+                    ? .dispatched(
+                        gesture: PalmTapGesture(
+                            side: target.side,
+                            pattern: target.pattern
+                        ),
+                        action: "calibration.action"
+                    )
+                    : .spatialUnavailable(
+                        pattern: target.pattern,
+                        reason: .calibrationRequired
+                    ),
+                memberCount: target.pattern.memberCount,
+                features: TapEventFeatures(
+                    time: Double(index),
+                    peakG: 0.1,
+                    decayMs: 20,
+                    zImpulseMgS: 0.1,
+                    lateralImpulseMgS: 0.1
+                ),
+                sensorTimestamp: Double(index),
+                resolutionLatencyS: 1,
+                regionPrediction: .unknown,
+                regionMemberFeatures: memberFeatures,
+                regionFeature: memberFeatures.reduce(0, +) /
+                    Double(memberFeatures.count),
+                regionReason: .ambiguous
+            )))
+        }
+        runtime.outputHandler?(.intent(.performAction(
+            id: "calibration.action",
+            trigger: TapTrigger(
+                eventID: RuntimeEventID(
+                    sessionID: UUID(),
+                    classifierEventID: "final-calibration-gesture"
+                ),
+                gesture: .rightTriple,
+                sensorTimestamp: 20,
+                regionProfileVersion: "personal-region-old"
+            )
+        )))
+
+        XCTAssertNil(coordinator.state.tapRegionCalibrationTarget)
+        XCTAssertTrue(
+            coordinator.state.tapRegionCalibrationProfile?.isValid == true
+        )
+        XCTAssertEqual(
+            runtime.currentTapRegionCalibrationProfile,
+            coordinator.state.tapRegionCalibrationProfile
+        )
+        XCTAssertNil(coordinator.state.actionError)
     }
 
     func testSetQuickActionPersistsIntoNormalizedSlot() {
@@ -283,7 +430,7 @@ final class RuntimeBridgeTests: XCTestCase {
         let coordinator = makeCoordinator(runtime: runtime)
         coordinator.addShortcut(name: "Focus")
         let action = coordinator.state.preferences.actions[0]
-        coordinator.setTapBinding(action.id, pattern: .single)
+        coordinator.setSpatialTapBinding(action.id, gesture: .rightDouble)
 
         coordinator.deleteAction(action.id)
 
@@ -292,14 +439,19 @@ final class RuntimeBridgeTests: XCTestCase {
             coordinator.state.preferences.normalizedQuickActionIDs
                 .allSatisfy { $0 == nil }
         )
-        XCTAssertNil(coordinator.state.configuration.tapBindings.single)
+        XCTAssertNil(
+            coordinator.state.configuration.spatialTapBindings.rightDouble
+        )
     }
 
     func testResetSettingsRestoresRuntimeAndAppDefaults() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
         coordinator.addShortcut(name: "Focus")
-        coordinator.setTapBinding("builtin.show-panel", pattern: .triple)
+        coordinator.setSpatialTapBinding(
+            "builtin.show-panel",
+            gesture: .leftTriple
+        )
 
         coordinator.resetSettings()
 
@@ -397,11 +549,14 @@ private final class FakeRuntime: RuntimeControlling {
     private var configuration = RuntimeConfiguration.default
     var currentSnapshot = RuntimeSnapshot()
     var currentTapCalibrationProfile: RuntimeTapCalibrationProfile?
+    var currentTapRegionCalibrationProfile:
+        RuntimeTapRegionCalibrationProfile?
     var tapCalibrationWarning: String?
+    var tapRegionCalibrationWarning: String?
     private(set) var configurationReadCount = 0
     var startCount = 0
     var stopCount = 0
-    var setTapBindingError: Error?
+    var setSpatialTapBindingError: Error?
 
     var currentConfiguration: RuntimeConfiguration {
         configurationReadCount += 1
@@ -416,12 +571,14 @@ private final class FakeRuntime: RuntimeControlling {
         stopCount += 1
     }
 
-    func setTapBinding(_ action: ActionIdentifier?,
-                       for pattern: TapPattern) throws {
-        if let setTapBindingError {
-            throw setTapBindingError
+    func setSpatialTapBinding(
+        _ action: ActionIdentifier?,
+        for gesture: PalmTapGesture
+    ) throws {
+        if let setSpatialTapBindingError {
+            throw setSpatialTapBindingError
         }
-        configuration.tapBindings[pattern] = action
+        configuration.spatialTapBindings[gesture] = action
     }
 
     func setPanelHintsEnabled(_ enabled: Bool) throws {
@@ -438,6 +595,16 @@ private final class FakeRuntime: RuntimeControlling {
 
     func resetTapCalibration() throws {
         currentTapCalibrationProfile = nil
+    }
+
+    func applyTapRegionCalibration(
+        _ profile: RuntimeTapRegionCalibrationProfile
+    ) throws {
+        currentTapRegionCalibrationProfile = profile
+    }
+
+    func resetTapRegionCalibration() throws {
+        currentTapRegionCalibrationProfile = nil
     }
 }
 

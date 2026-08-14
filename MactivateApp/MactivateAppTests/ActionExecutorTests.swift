@@ -84,8 +84,9 @@ final class ActionExecutorTests: XCTestCase {
                 sessionID: UUID(),
                 classifierEventID: "tap-1"
             ),
-            pattern: .single,
-            sensorTimestamp: 1
+            gesture: .leftDouble,
+            sensorTimestamp: 1,
+            regionProfileVersion: "personal-region-test"
         )
         var outcomes: [ActionExecutor.Outcome] = []
 

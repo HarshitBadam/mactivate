@@ -19,7 +19,7 @@ public struct ActionIdentifier: RawRepresentable, Codable, Equatable, Hashable,
     }
 }
 
-public enum TapPattern: Int, Codable, CaseIterable, Sendable {
+public enum TapPattern: Int, Codable, CaseIterable, Hashable, Sendable {
     case single = 1
     case double = 2
     case triple = 3
@@ -60,30 +60,113 @@ public struct TapBindings: Codable, Equatable, Sendable {
     }
 }
 
+public struct PalmTapGesture: Codable, Equatable, Hashable, Sendable {
+    public var side: TapRegionSide
+    public var pattern: TapRegionPattern
+
+    public init(side: TapRegionSide, pattern: TapRegionPattern) {
+        self.side = side
+        self.pattern = pattern
+    }
+
+    public static let leftDouble = PalmTapGesture(
+        side: .left,
+        pattern: .double
+    )
+    public static let leftTriple = PalmTapGesture(
+        side: .left,
+        pattern: .triple
+    )
+    public static let rightDouble = PalmTapGesture(
+        side: .right,
+        pattern: .double
+    )
+    public static let rightTriple = PalmTapGesture(
+        side: .right,
+        pattern: .triple
+    )
+
+    public static let allCases: [PalmTapGesture] = [
+        .leftDouble,
+        .leftTriple,
+        .rightDouble,
+        .rightTriple
+    ]
+}
+
+public struct SpatialTapBindings: Codable, Equatable, Sendable {
+    public var leftDouble: ActionIdentifier?
+    public var leftTriple: ActionIdentifier?
+    public var rightDouble: ActionIdentifier?
+    public var rightTriple: ActionIdentifier?
+
+    public init(
+        leftDouble: ActionIdentifier? = nil,
+        leftTriple: ActionIdentifier? = nil,
+        rightDouble: ActionIdentifier? = nil,
+        rightTriple: ActionIdentifier? = nil
+    ) {
+        self.leftDouble = leftDouble
+        self.leftTriple = leftTriple
+        self.rightDouble = rightDouble
+        self.rightTriple = rightTriple
+    }
+
+    public subscript(gesture: PalmTapGesture) -> ActionIdentifier? {
+        get {
+            switch (gesture.side, gesture.pattern) {
+            case (.left, .double): return leftDouble
+            case (.left, .triple): return leftTriple
+            case (.right, .double): return rightDouble
+            case (.right, .triple): return rightTriple
+            }
+        }
+        set {
+            switch (gesture.side, gesture.pattern) {
+            case (.left, .double): leftDouble = newValue
+            case (.left, .triple): leftTriple = newValue
+            case (.right, .double): rightDouble = newValue
+            case (.right, .triple): rightTriple = newValue
+            }
+        }
+    }
+
+    public var isEmpty: Bool {
+        PalmTapGesture.allCases.allSatisfy { self[$0] == nil }
+    }
+
+    var isValid: Bool {
+        PalmTapGesture.allCases.compactMap { self[$0] }
+            .allSatisfy(\.isValid)
+    }
+}
+
 public struct RuntimeConfiguration: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
-    public var tapBindings: TapBindings
+    public var spatialTapBindings: SpatialTapBindings
     public var panelHintsEnabled: Bool
 
-    public init(schemaVersion: Int = currentSchemaVersion,
-                tapBindings: TapBindings = TapBindings(),
-                panelHintsEnabled: Bool = true) {
+    public init(
+        schemaVersion: Int = currentSchemaVersion,
+        spatialTapBindings: SpatialTapBindings = SpatialTapBindings(),
+        panelHintsEnabled: Bool = true
+    ) {
         self.schemaVersion = schemaVersion
-        self.tapBindings = tapBindings
+        self.spatialTapBindings = spatialTapBindings
         self.panelHintsEnabled = panelHintsEnabled
     }
 
     public static let `default` = RuntimeConfiguration()
 
     public static let failClosed = RuntimeConfiguration(
-        tapBindings: TapBindings(),
+        spatialTapBindings: SpatialTapBindings(),
         panelHintsEnabled: false
     )
 
     var isCurrentAndValid: Bool {
-        schemaVersion == Self.currentSchemaVersion && tapBindings.isValid
+        schemaVersion == Self.currentSchemaVersion && spatialTapBindings.isValid
     }
 }
 
@@ -99,23 +182,62 @@ public struct RuntimeEventID: Equatable, Hashable, Sendable {
 
 public struct TapTrigger: Equatable, Sendable {
     public let eventID: RuntimeEventID
-    public let pattern: TapPattern
+    public let gesture: PalmTapGesture
     public let sensorTimestamp: SensorTimestamp
+    public let regionProfileVersion: String
 
-    public init(eventID: RuntimeEventID, pattern: TapPattern,
-                sensorTimestamp: SensorTimestamp) {
+    public init(
+        eventID: RuntimeEventID,
+        gesture: PalmTapGesture,
+        sensorTimestamp: SensorTimestamp,
+        regionProfileVersion: String
+    ) {
         self.eventID = eventID
-        self.pattern = pattern
+        self.gesture = gesture
         self.sensorTimestamp = sensorTimestamp
+        self.regionProfileVersion = regionProfileVersion
+    }
+
+    public var pattern: TapPattern {
+        gesture.pattern == .double ? .double : .triple
+    }
+}
+
+public enum SpatialTapUnavailableReason: Equatable, Sendable {
+    case tapCalibrationRequired
+    case calibrationRequired
+    case gyroscopeUnavailable
+    case insufficientGyroscopeData
+    case ambiguous
+    case invalidProfile
+
+    public var message: String {
+        switch self {
+        case .tapCalibrationRequired:
+            return "tap-acceptance calibration required"
+        case .calibrationRequired:
+            return "left/right calibration required"
+        case .gyroscopeUnavailable:
+            return "gyroscope unavailable"
+        case .insufficientGyroscopeData:
+            return "incomplete gyroscope window"
+        case .ambiguous:
+            return "side was inside the confidence guard band"
+        case .invalidProfile:
+            return "left/right calibration is invalid"
+        }
     }
 }
 
 public enum TapFeedbackOutcome: Equatable, Sendable {
     case candidate
     case rejected(TapRejectionReason)
-    case acceptedUnmapped(TapPattern)
-    case duplicate(TapPattern)
-    case dispatched(pattern: TapPattern, action: ActionIdentifier)
+    case acceptedNonActionable(TapPattern)
+    case acceptedUnmapped(PalmTapGesture)
+    case duplicate(PalmTapGesture)
+    case spatialUnavailable(pattern: TapRegionPattern,
+                            reason: SpatialTapUnavailableReason)
+    case dispatched(gesture: PalmTapGesture, action: ActionIdentifier)
 }
 
 public struct TapFeedback: Equatable, Sendable {
@@ -124,19 +246,34 @@ public struct TapFeedback: Equatable, Sendable {
     public let features: TapEventFeatures
     public let sensorTimestamp: SensorTimestamp
     public let resolutionLatencyS: Double
+    public let regionPrediction: TapRegionPrediction?
+    public let regionMemberFeatures: [Double]
+    public let regionFeature: Double?
+    public let regionProfileVersion: String?
+    public let regionReason: TapRegionResolutionReason?
 
     public init(
         outcome: TapFeedbackOutcome,
         memberCount: Int,
         features: TapEventFeatures,
         sensorTimestamp: SensorTimestamp,
-        resolutionLatencyS: Double
+        resolutionLatencyS: Double,
+        regionPrediction: TapRegionPrediction? = nil,
+        regionMemberFeatures: [Double] = [],
+        regionFeature: Double? = nil,
+        regionProfileVersion: String? = nil,
+        regionReason: TapRegionResolutionReason? = nil
     ) {
         self.outcome = outcome
         self.memberCount = memberCount
         self.features = features
         self.sensorTimestamp = sensorTimestamp
         self.resolutionLatencyS = resolutionLatencyS
+        self.regionPrediction = regionPrediction
+        self.regionMemberFeatures = regionMemberFeatures
+        self.regionFeature = regionFeature
+        self.regionProfileVersion = regionProfileVersion
+        self.regionReason = regionReason
     }
 }
 
@@ -235,6 +372,105 @@ public struct TapCalibrationDraft: Equatable, Sendable {
 
 public typealias RuntimeTapCalibrationProfile = TapCalibrationProfile
 
+public struct TapRegionCalibrationTarget: Hashable, Sendable {
+    public var side: TapRegionSide
+    public var pattern: TapRegionPattern
+
+    public init(side: TapRegionSide, pattern: TapRegionPattern) {
+        self.side = side
+        self.pattern = pattern
+    }
+
+    public static let ordered: [TapRegionCalibrationTarget] =
+        TapRegionSide.allCases.flatMap { side in
+            TapRegionPattern.allCases.map {
+                TapRegionCalibrationTarget(side: side, pattern: $0)
+            }
+        }
+}
+
+public enum TapRegionCalibrationRecordError: Error, Equatable,
+    CustomStringConvertible {
+    case wrongTapCount(expected: Int, detected: Int)
+    case missingGyroscopeFeatures
+
+    public var description: String {
+        switch self {
+        case .wrongTapCount(let expected, let detected):
+            return "Detected \(detected) taps; this step needs \(expected). Try again."
+        case .missingGyroscopeFeatures:
+            return "Gyroscope data was unavailable for this gesture. Try again."
+        }
+    }
+}
+
+public struct TapRegionCalibrationDraft: Equatable, Sendable {
+    public static let requiredGesturesPerTarget =
+        TapRegionCalibrationProfileBuilder.requiredGesturesPerTarget
+
+    private var gestures: [TapRegionCalibrationTarget:
+        [TapRegionCalibrationGesture]] = [:]
+
+    public init() {}
+
+    public mutating func record(
+        _ feedback: TapFeedback,
+        target: TapRegionCalibrationTarget
+    ) throws {
+        guard feedback.memberCount == target.pattern.memberCount else {
+            throw TapRegionCalibrationRecordError.wrongTapCount(
+                expected: target.pattern.memberCount,
+                detected: feedback.memberCount
+            )
+        }
+        guard feedback.regionMemberFeatures.count ==
+                target.pattern.memberCount else {
+            throw TapRegionCalibrationRecordError.missingGyroscopeFeatures
+        }
+        let repetition = sampleCount(target: target) + 1
+        gestures[target, default: []].append(TapRegionCalibrationGesture(
+            side: target.side,
+            pattern: target.pattern,
+            repetition: repetition,
+            memberFeatures: feedback.regionMemberFeatures
+        ))
+    }
+
+    public func sampleCount(target: TapRegionCalibrationTarget) -> Int {
+        gestures[target]?.count ?? 0
+    }
+
+    public var totalSampleCount: Int {
+        gestures.values.reduce(0) { $0 + $1.count }
+    }
+
+    public var isComplete: Bool {
+        TapRegionCalibrationTarget.ordered.allSatisfy {
+            sampleCount(target: $0) >=
+                Self.requiredGesturesPerTarget
+        }
+    }
+
+    public mutating func reset(target: TapRegionCalibrationTarget) {
+        gestures[target] = []
+    }
+
+    public mutating func reset() {
+        gestures.removeAll()
+    }
+
+    public func buildProfile() throws -> TapRegionCalibrationBuildResult {
+        try TapRegionCalibrationProfileBuilder.build(
+            gestures: TapRegionCalibrationTarget.ordered.flatMap {
+                gestures[$0] ?? []
+            }
+        )
+    }
+}
+
+public typealias RuntimeTapRegionCalibrationProfile =
+    TapRegionCalibrationProfile
+
 public enum PanelPresentationReason: Equatable, Sendable {
     case ambientLightHint
 }
@@ -259,6 +495,14 @@ public enum TapFeatureState: Equatable, Sendable {
     case unavailable(reason: String)
 }
 
+public enum TapRegionFeatureState: Equatable, Sendable {
+    case inactive
+    case warmingUp
+    case needsCalibration
+    case available(profileVersion: String)
+    case unavailable(reason: String)
+}
+
 public enum PanelHintFeatureState: Equatable, Sendable {
     case inactive
     case disabled
@@ -271,13 +515,18 @@ public enum PanelHintFeatureState: Equatable, Sendable {
 public struct RuntimeSnapshot: Equatable, Sendable {
     public var lifecycle: RuntimeLifecycleState
     public var tap: TapFeatureState
+    public var tapRegion: TapRegionFeatureState
     public var panelHint: PanelHintFeatureState
 
-    public init(lifecycle: RuntimeLifecycleState = .stopped,
-                tap: TapFeatureState = .inactive,
-                panelHint: PanelHintFeatureState = .inactive) {
+    public init(
+        lifecycle: RuntimeLifecycleState = .stopped,
+        tap: TapFeatureState = .inactive,
+        tapRegion: TapRegionFeatureState = .inactive,
+        panelHint: PanelHintFeatureState = .inactive
+    ) {
         self.lifecycle = lifecycle
         self.tap = tap
+        self.tapRegion = tapRegion
         self.panelHint = panelHint
     }
 }

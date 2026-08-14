@@ -3,7 +3,7 @@ import MactivateRuntime
 import SwiftUI
 
 struct SettingsActions {
-    let setTapBinding: (ActionIdentifier?, TapPattern) -> Void
+    let setSpatialTapBinding: (ActionIdentifier?, PalmTapGesture) -> Void
     let setPanelHintsEnabled: (Bool) -> Void
     let setQuickAction: (Int, ActionIdentifier?) -> Void
     let addApplication: () -> Void
@@ -16,6 +16,10 @@ struct SettingsActions {
     let stopCalibrationCapture: () -> Void
     let saveCalibration: () -> Void
     let resetCalibration: () -> Void
+    let beginRegionCalibration: () -> Void
+    let stopRegionCalibration: () -> Void
+    let saveRegionCalibration: () -> Void
+    let resetRegionCalibration: () -> Void
     let testAction: (ActionIdentifier) -> Void
     let reset: () -> Void
 }
@@ -63,26 +67,32 @@ struct SettingsView: View {
                     }
 
                     GroupBox("Palm-rest gestures") {
-                        VStack(spacing: 10) {
-                            gestureRow("Single tap", pattern: .single)
-                            gestureRow("Double tap", pattern: .double)
-                            gestureRow("Triple tap", pattern: .triple)
+                        VStack(alignment: .leading, spacing: 12) {
+                            spatialGestureGrid
                             Divider()
                             HStack {
                                 Label(state.tapStatus, systemImage: "sensor.fill")
                                 Spacer()
-                                Text(state.tapCalibrationStatus)
+                                Text(state.tapRegionCalibrationStatus)
                                     .foregroundStyle(
-                                        state.tapCalibrationProfile == nil ?
-                                            .orange : .secondary
+                                        state.spatialGesturesReady ?
+                                            Color.secondary : Color.orange
                                     )
                             }
                             .font(.caption)
+                            if !state.spatialGesturesReady {
+                                Button("Calibrate left/right detection") {
+                                    actions.beginRegionCalibration()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!state.canCalibrateTapRegion)
+                            }
                         }
                         .padding(.top, 4)
                     }
 
                     CalibrationView(state: state, actions: actions)
+                    RegionCalibrationView(state: state, actions: actions)
                 }
                 .padding(.trailing, 4)
             }
@@ -170,22 +180,50 @@ struct SettingsView: View {
         }
     }
 
-    private func gestureRow(
-        _ title: String,
-        pattern: TapPattern
-    ) -> some View {
-        HStack {
-            Label(title, systemImage: "\(pattern.rawValue).circle.fill")
-                .frame(width: 130, alignment: .leading)
-            ActionPicker(
-                selection: Binding(
-                    get: { state.configuration.tapBindings[pattern] },
-                    set: { actions.setTapBinding($0, pattern) }
-                ),
-                actions: state.actions,
-                includeShowPanel: true
-            )
+    private var spatialGestureGrid: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+            GridRow {
+                Text("")
+                Text("Double tap")
+                    .font(.caption.weight(.semibold))
+                Text("Triple tap")
+                    .font(.caption.weight(.semibold))
+            }
+            GridRow {
+                Label("Left palm rest", systemImage: "hand.point.left.fill")
+                    .frame(width: 130, alignment: .leading)
+                spatialGesturePicker(.leftDouble)
+                spatialGesturePicker(.leftTriple)
+            }
+            GridRow {
+                Label("Right palm rest", systemImage: "hand.point.right.fill")
+                    .frame(width: 130, alignment: .leading)
+                spatialGesturePicker(.rightDouble)
+                spatialGesturePicker(.rightTriple)
+            }
         }
+    }
+
+    private func spatialGesturePicker(
+        _ gesture: PalmTapGesture
+    ) -> some View {
+        ActionPicker(
+            selection: Binding(
+                get: { state.configuration.spatialTapBindings[gesture] },
+                set: { actions.setSpatialTapBinding($0, gesture) }
+            ),
+            actions: state.actions,
+            includeShowPanel: true
+        )
+        .disabled(!state.spatialGesturesReady)
+        .accessibilityLabel(
+            "\(gesture.side.rawValue.capitalized) palm rest, " +
+                "\(gesture.pattern.rawValue) tap action"
+        )
+        .accessibilityIdentifier(
+            "spatial-\(gesture.side.rawValue)-" +
+                "\(gesture.pattern.rawValue)-action"
+        )
     }
 
     private var general: some View {
@@ -219,11 +257,28 @@ struct SettingsView: View {
             }
 
             Section("Calibration") {
-                LabeledContent("Palm rests", value: state.tapCalibrationStatus)
-                Button("Reset palm-tap calibration", role: .destructive) {
+                LabeledContent(
+                    "Tap acceptance",
+                    value: state.tapCalibrationStatus
+                )
+                LabeledContent(
+                    "Left/right detection",
+                    value: state.tapRegionCalibrationStatus
+                )
+                Button("Reset tap-acceptance calibration", role: .destructive) {
                     actions.resetCalibration()
                 }
-                .disabled(state.tapCalibrationProfile == nil)
+                .disabled(
+                    state.tapCalibrationProfile == nil &&
+                        state.tapCalibrationStoreWarning == nil
+                )
+                Button("Reset left/right calibration", role: .destructive) {
+                    actions.resetRegionCalibration()
+                }
+                .disabled(
+                    state.tapRegionCalibrationProfile == nil &&
+                        state.tapRegionCalibrationStoreWarning == nil
+                )
             }
 
             Section {
@@ -246,9 +301,14 @@ struct SettingsView: View {
                     symbol: "hand.tap"
                 )
                 statusCard(
-                    title: "Calibration",
+                    title: "Tap acceptance",
                     value: state.tapCalibrationStatus,
                     symbol: "scope"
+                )
+                statusCard(
+                    title: "Left/right",
+                    value: state.tapRegionStatus,
+                    symbol: "arrow.left.and.right"
                 )
             }
             if let feedback = state.lastTapFeedback {
@@ -259,6 +319,9 @@ struct SettingsView: View {
                         Text("Peak \(feedback.features.peakG, format: .number.precision(.fractionLength(3))) g · \(feedback.memberCount) candidate\(feedback.memberCount == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        Text(state.tapRegionFeedbackDescription)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
                         if case .rejected(let reason) = feedback.outcome {
                             Label(reason.guidance, systemImage: "lightbulb")
                                 .font(.caption)
@@ -426,11 +489,12 @@ private struct CalibrationView: View {
     ]
 
     var body: some View {
-        GroupBox("Calibrate both palm rests") {
+        GroupBox("Step 1 · Calibrate tap acceptance") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "Keep the Mac on a stable surface. Capture five short taps for each step. " +
-                    "Left and right values are learned separately, then combined safely."
+                    "Keep the Mac on a stable surface. Capture five single taps " +
+                    "for each side and force so intended taps can be separated " +
+                    "from typing and bumps."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -500,6 +564,109 @@ private struct CalibrationView: View {
                 side: $0.side,
                 intensity: $0.intensity
             ) >= 5
+        }
+    }
+}
+
+private struct RegionCalibrationView: View {
+    @ObservedObject var state: AppState
+    let actions: SettingsActions
+
+    var body: some View {
+        GroupBox("Step 2 · Calibrate left/right detection") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(
+                    "This guided test is completely user-paced. Read the target, " +
+                    "then perform that double or triple tap on the requested palm " +
+                    "rest. The next target appears only after a valid gesture."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if let target = state.tapRegionCalibrationTarget {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(
+                            "TARGET: \(target.side.rawValue.uppercased()) · " +
+                                "\(target.pattern.rawValue.uppercased()) TAP"
+                        )
+                        .font(.title3.bold())
+                        Text(
+                            "Perform \(target.pattern.memberCount) taps whenever " +
+                                "you are ready."
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        Color.accentColor.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("region-calibration-target")
+                }
+
+                Grid(horizontalSpacing: 16, verticalSpacing: 6) {
+                    ForEach(
+                        TapRegionCalibrationTarget.ordered,
+                        id: \.self
+                    ) { target in
+                        let count = state.tapRegionCalibrationDraft.sampleCount(
+                            target: target
+                        )
+                        GridRow {
+                            Image(
+                                systemName: count >= 5
+                                    ? "checkmark.circle.fill" : "circle"
+                            )
+                            .foregroundStyle(
+                                count >= 5 ? .green : .secondary
+                            )
+                            Text(
+                                "\(target.side.rawValue.capitalized) palm rest"
+                            )
+                            Text("\(target.pattern.rawValue.capitalized) tap")
+                            Text("\(count)/5")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if let error = state.tapRegionCalibrationError {
+                    Label(error, systemImage: "arrow.clockwise.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                HStack {
+                    if state.tapRegionCalibrationTarget == nil {
+                        Button(
+                            state.tapRegionCalibrationDraft.totalSampleCount == 0
+                                ? "Start guided calibration"
+                                : "Restart guided calibration",
+                            action: actions.beginRegionCalibration
+                        )
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!state.canCalibrateTapRegion)
+                    } else {
+                        Button(
+                            "Stop calibration",
+                            action: actions.stopRegionCalibration
+                        )
+                    }
+                    Spacer()
+                    Button(
+                        "Qualify and save",
+                        action: actions.saveRegionCalibration
+                    )
+                    .disabled(
+                        !state.tapRegionCalibrationDraft.isComplete ||
+                            state.tapRegionCalibrationTarget != nil
+                    )
+                }
+            }
+            .padding(.top, 4)
         }
     }
 }
@@ -636,19 +803,20 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: 13) {
                 setupStep(
-                    "Calibrate both palm rests",
+                    "Calibrate tap acceptance",
                     complete: state.tapCalibrationProfile != nil
+                )
+                setupStep(
+                    "Calibrate left/right double and triple taps",
+                    complete: state.tapRegionCalibrationProfile != nil
                 )
                 setupStep(
                     "Add and test your first action",
                     complete: !state.preferences.actions.isEmpty
                 )
                 setupStep(
-                    "Assign a single, double, or triple tap",
-                    complete:
-                        state.configuration.tapBindings.single != nil ||
-                        state.configuration.tapBindings.double != nil ||
-                        state.configuration.tapBindings.triple != nil
+                    "Assign one of the four spatial gestures",
+                    complete: !state.configuration.spatialTapBindings.isEmpty
                 )
                 setupStep(
                     "Optionally fill the four notch slots",
@@ -662,7 +830,6 @@ struct OnboardingView: View {
             HStack {
                 Button("Set Up Now") {
                     openSettings()
-                    complete()
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

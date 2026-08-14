@@ -21,10 +21,11 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
             key: key
         )
         let configuration = RuntimeConfiguration(
-            tapBindings: TapBindings(
-                single: "action.single",
-                double: "action.double",
-                triple: "action.triple"
+            spatialTapBindings: SpatialTapBindings(
+                leftDouble: "action.left-double",
+                leftTriple: "action.left-triple",
+                rightDouble: "action.right-double",
+                rightTriple: "action.right-triple"
             ),
             panelHintsEnabled: false
         )
@@ -58,7 +59,7 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
         let (defaults, key) = makeDefaults()
         let future = Data(
             """
-            {"schemaVersion":2,"tapBindings":{},"panelHintsEnabled":true}
+            {"schemaVersion":3,"spatialTapBindings":{},"panelHintsEnabled":true}
             """.utf8
         )
         defaults.set(future, forKey: key)
@@ -80,10 +81,50 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
     func testInvalidActionIdentifierCannotBeSaved() {
         let store = InMemoryRuntimeConfigurationStore()
         let invalid = RuntimeConfiguration(
-            tapBindings: TapBindings(single: ActionIdentifier(rawValue: "  "))
+            spatialTapBindings: SpatialTapBindings(
+                leftDouble: ActionIdentifier(rawValue: "  ")
+            )
         )
 
         XCTAssertThrowsError(try store.save(invalid))
+    }
+
+    func testVersionOneMigrationPreservesPanelHintAndClearsAllTapBindings()
+        throws {
+        let (defaults, key) = makeDefaults()
+        defaults.set(Data(
+            """
+            {
+              "schemaVersion": 1,
+              "tapBindings": {
+                "single": "old.single",
+                "double": "old.double",
+                "triple": "old.triple"
+              },
+              "panelHintsEnabled": false
+            }
+            """.utf8
+        ), forKey: key)
+        let store = UserDefaultsRuntimeConfigurationStore(
+            defaults: defaults,
+            key: key
+        )
+
+        let result = store.load()
+
+        guard case .loaded(let migrated) = result else {
+            return XCTFail("version one should migrate")
+        }
+        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertFalse(migrated.panelHintsEnabled)
+        XCTAssertTrue(migrated.spatialTapBindings.isEmpty)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                RuntimeConfiguration.self,
+                from: XCTUnwrap(defaults.data(forKey: key))
+            ),
+            migrated
+        )
     }
 
     private func makeDefaults() -> (UserDefaults, String) {

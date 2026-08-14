@@ -13,6 +13,13 @@ final class AppState: ObservableObject {
     @Published var tapCalibrationDraft = TapCalibrationDraft()
     @Published var tapCalibrationTarget: TapCalibrationTarget?
     @Published var tapCalibrationError: String?
+    @Published var tapCalibrationStoreWarning: String?
+    @Published var tapRegionCalibrationProfile:
+        RuntimeTapRegionCalibrationProfile?
+    @Published var tapRegionCalibrationDraft = TapRegionCalibrationDraft()
+    @Published var tapRegionCalibrationTarget: TapRegionCalibrationTarget?
+    @Published var tapRegionCalibrationError: String?
+    @Published var tapRegionCalibrationStoreWarning: String?
     @Published var settingsFocusedSlot: Int?
     @Published var availableShortcuts: [String] = []
     @Published var launchAtLoginStatus: LaunchAtLoginStatus = .disabled
@@ -70,6 +77,49 @@ final class AppState: ObservableObject {
             "Calibration needed"
     }
 
+    var tapRegionCalibrationStatus: String {
+        if let target = tapRegionCalibrationTarget {
+            let count = tapRegionCalibrationDraft.sampleCount(target: target)
+            return "Capturing \(target.side.rawValue) " +
+                "\(target.pattern.rawValue) taps · \(count)/5"
+        }
+        guard tapCalibrationProfile?.isValid == true else {
+            return "Calibrate tap acceptance first"
+        }
+        guard tapRegionCalibrationProfile?.isValid == true else {
+            return "Left/right calibration needed"
+        }
+        return "Left/right double and triple taps calibrated"
+    }
+
+    var spatialGesturesReady: Bool {
+        tapCalibrationProfile?.isValid == true &&
+            tapRegionCalibrationProfile?.isValid == true
+    }
+
+    var canCalibrateTapRegion: Bool {
+        guard tapCalibrationProfile?.isValid == true else { return false }
+        if case .unavailable = snapshot.tapRegion { return false }
+        return true
+    }
+
+    var tapRegionStatus: String {
+        switch snapshot.tapRegion {
+        case .inactive:
+            return "Left/right detection is off"
+        case .warmingUp:
+            return "Connecting gyroscope"
+        case .needsCalibration:
+            return tapRegionCalibrationStatus
+        case .available:
+            return spatialGesturesReady
+                ? "Left/right detection ready"
+                : tapRegionCalibrationStatus
+        case .unavailable(let reason):
+            return "Left/right detection unavailable · \(reason)"
+        }
+    }
+
     var panelHintStatus: String {
         switch snapshot.panelHint {
         case .inactive:
@@ -97,7 +147,10 @@ final class AppState: ObservableObject {
         Model: \(model)
         Runtime: \(String(describing: snapshot.lifecycle))
         \(tapStatus)
+        \(tapRegionStatus)
+        Region calibration: \(tapRegionCalibrationStatus)
         Last tap: \(tapFeedbackDescription)
+        Region detail: \(tapRegionFeedbackDescription)
         \(panelHintStatus)
         Warning: \(recentWarning ?? "none")
         """
@@ -111,13 +164,34 @@ final class AppState: ObservableObject {
             return "candidate detected; waiting for tap count"
         case .rejected(let reason):
             return "rejected (\(reason.rawValue), \(latency)s)"
-        case .acceptedUnmapped(let pattern):
-            return "accepted \(pattern.rawValue)x, no action mapped (\(latency)s)"
-        case .duplicate(let pattern):
-            return "duplicate \(pattern.rawValue)x ignored"
-        case .dispatched(let pattern, let action):
-            return "dispatched \(pattern.rawValue)x to \(action.rawValue) (\(latency)s)"
+        case .acceptedNonActionable(let pattern):
+            return "accepted \(pattern.rawValue)x for diagnostics; no action"
+        case .acceptedUnmapped(let gesture):
+            return "accepted \(gesture.side.rawValue) " +
+                "\(gesture.pattern.rawValue), no action mapped (\(latency)s)"
+        case .duplicate(let gesture):
+            return "duplicate \(gesture.side.rawValue) " +
+                "\(gesture.pattern.rawValue) ignored"
+        case .spatialUnavailable(let pattern, let reason):
+            return "\(pattern.rawValue) tap resolved; left/right unavailable " +
+                "(\(reason.message))"
+        case .dispatched(let gesture, let action):
+            return "dispatched \(gesture.side.rawValue) " +
+                "\(gesture.pattern.rawValue) to \(action.rawValue) " +
+                "(\(latency)s)"
         }
+    }
+
+    var tapRegionFeedbackDescription: String {
+        guard let feedback = lastTapFeedback else { return "none" }
+        let prediction = feedback.regionPrediction?.rawValue ?? "not evaluated"
+        let feature = feedback.regionFeature.map {
+            String(format: "%.5f", $0)
+        } ?? "none"
+        let version = feedback.regionProfileVersion ?? "none"
+        let reason = feedback.regionReason?.rawValue ?? "none"
+        return "side=\(prediction), count=\(feedback.memberCount), " +
+            "feature=\(feature), model=\(version), reason=\(reason)"
     }
 
     private static func hardwareModel() -> String? {

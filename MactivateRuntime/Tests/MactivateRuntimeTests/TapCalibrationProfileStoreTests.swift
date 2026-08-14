@@ -37,9 +37,23 @@ final class TapCalibrationProfileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: "calibration"), corrupt)
     }
 
-    private func validProfile() -> TapCalibrationProfile {
-        TapCalibrationProfile(
+    func testDiscoveryCalibrationCannotMasqueradeAsPersonalProfile() {
+        let profile = TapCalibrationProfile(
             calibration: .mac14_2Discovery,
+            sideSummaries: [
+                .left: summary,
+                .right: summary
+            ]
+        )
+
+        XCTAssertFalse(profile.isValid)
+    }
+
+    private func validProfile() -> TapCalibrationProfile {
+        var calibration = TapCalibration.mac14_2Discovery
+        calibration.version = "personal-store-test"
+        return TapCalibrationProfile(
+            calibration: calibration,
             sideSummaries: [
                 .left: summary,
                 .right: summary

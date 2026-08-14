@@ -52,6 +52,7 @@ public struct TapCalibrationProfile: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         schemaVersion == Self.currentSchemaVersion &&
+            calibration.version.hasPrefix("personal-") &&
             Set(sideSummaries.keys) == Set(PalmSide.allCases) &&
             sideSummaries.values.allSatisfy {
                 $0.comfortSampleCount >= 5 && $0.firmSampleCount >= 5

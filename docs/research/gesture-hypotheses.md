@@ -6,9 +6,10 @@ This file preserves technical findings; it does not define current product scope
 
 ## Current research verdicts
 
-- **Palm-rest taps:** supported on the measured Mac14,2. Comfortable single/double/triple taps are the strongest interaction candidate.
+- **Palm-rest taps:** supported on the measured Mac14,2. The product path uses double/triple gestures; single taps remain diagnostic-only.
 - **Nearby-table taps:** detectable but not separable from typing and desk bumps on the measured features.
-- **Left/right/center localization:** refuted on the target machine; side labels remain calibration provenance, not runtime regions.
+- **Accelerometer-only per-tap left/right/center localization:** refuted on the target machine in the 2026-07-24 study.
+- **Gyro-based left/right multi-tap localization:** validated for natural double/triple gestures in one-user training and independently repositioned validation captures on 2026-08-14; per-user calibration remains required.
 - **ALS hand hover:** physically detectable in favorable light, but not reliably separable from ordinary shadows and unavailable near the sensor's dim-light floor. The MVP uses it only as a best-effort panel-opening convenience with manual fallback.
 
 ## Shared assumptions (must hold, or the preferred tap path weakens)
@@ -23,6 +24,7 @@ Common signal-processing toolkit available from prior art: gravity removal (Kalm
 
 - Replaying identical recorded samples with identical versioned calibration and classifier settings must produce identical classified events.
 - Single/double/triple resolution uses an explicit timing state machine. An action fires only after the configured sequence window resolves, so a single tap cannot fire and then be reinterpreted as a double tap.
+- Side classification runs only after an accepted double/triple group, aggregates all members by median, and returns unknown rather than guessing when gyro data or calibrated confidence is insufficient.
 - Every accepted event has a stable tap count, timestamp, confidence, and event ID; action dispatch deduplicates by event ID.
 - Ambiguous, overlapping, stale, or low-confidence candidates are rejected rather than guessed.
 - A small repeated capture set covers intended taps plus typing, trackpad activity, rest, and desk bumps before changing classifier thresholds.
@@ -56,7 +58,7 @@ Common signal-processing toolkit available from prior art: gravity removal (Kalm
   - ~~The palm-tap and desk-tap feature distributions overlap so heavily that a per-user classifier cannot separate them~~ — refuted; amplitude band and Z-impulse sign both separate palm from desk cleanly.
   - **(New)** Desk taps cannot be separated from typing/trackpad/bump activity at an acceptable operating point — **met and final (2026-07-24)**: typing overlap was already established, the `baseline_bump` take shows bumps swamp the desk band with no amplitude/impulse/decay separator, idle-gating does not defend against bumps, and the spectral test (the last untested separator) failed its pre-stated criterion by an order of magnitude (76–79% typing+bump acceptance at ≥90% desk recall vs the ≤5% required).
 
-## H-TAP-REGION — Left / right / center palm-rest localization
+## H-TAP-REGION — Left / right / center palm-rest localization (accelerometer, per tap)
 
 - **Statement:** The lateral position of a palm-rest tap (at minimum left vs. right of the trackpad) is recoverable from the SPU accelerometer, primarily from the sign and magnitude of the X-axis impulse, well enough to support calibrated per-region mappings.
 - **Possible signal sources:** SPU accelerometer X-axis impulse (per knocker); gyroscope rotational transient as a secondary feature.
@@ -64,10 +66,21 @@ Common signal-processing toolkit available from prior art: gravity removal (Kalm
 - **Calibration needs:** per-machine `flip_x`-style orientation, lateral magnitude threshold, and labelled left/right/center takes; region boundaries defined during calibration, not assumed.
 - **Possible classifier direction:** windowed per-axis impulse features on top of the H-TAP-PALM onset detector; escalate to 2–3 axis features only if X alone cannot separate the calibrated regions.
 - **Confidence:** **REFUTED on the target machine (2026-07-24)** for per-tap lateral localization. The two confounds that kept the earlier verdict preliminary are both closed: (1) a gravity-verified four-way tilt take proves the X axis *is* the physical lateral (left–right) chassis direction and Y the front–back one — the null result is not an axis-labeling artifact; (2) the right-palm firm take completes the side × intensity matrix, and the 150 ms X-impulse is **positive in all four cells** (left/right × comfort/firm), same sign, overlapping ranges — prior art's (knocker) sign-flip does not exist on this Mac14,2's SPU placement. A weak tap-side-congruent lean does exist in the **±25 ms** X-impulse (left taps lean negative, right positive, in all four takes) but only at 60–75% per-tap consistency — unusable for calibrated per-region mappings, at best an aggregate/tie-breaker feature. Per the third failure criterion below, the product's region mapping must be rethought as **surface-class mapping (palm vs. desk)**, not lateral palm regions. See [Probe Results](../probe-results/2026-07-24-mac14-2-discovery.md).
+- **Historical scope note:** This verdict remains accurate for the accelerometer-only, per-tap hypothesis tested on 2026-07-24. It did not test natural multi-tap gestures with the gyroscope and therefore does not contradict the distinct validated hypothesis below.
 - **Fails if (local evidence):**
   - ~~Left/right labelled takes do not show a consistent X-impulse sign separation on the target machine~~ — **met and final** (2026-07-24): no sign flip at either force level on either side, with the axis frame gravity-verified.
   - ~~The lateral signal varies so much with tap strength/position that calibrated thresholds cannot hold across a session~~ — moot; no lateral signal to threshold.
-  - Only a region count of 1 (no localization) survives the data — in which case the product's region mapping must be rethought (single region per surface, or desk vs. palm only). **This is now the operative outcome.**
+  - Only a region count of 1 (no localization) survives the data — in which case the product's region mapping must be rethought (single region per surface, or desk vs. palm only). **This was the operative outcome for the 2026-07-24 accelerometer-only hypothesis.**
+
+## H-TAP-REGION-MULTITAP-GYRO — Left / right double and triple palm-rest gestures
+
+- **Statement:** After the accelerometer accepts and resolves a natural double/triple palm-rest gesture, the median gyroscope X peak-balance across its members can identify the left or right palm-rest side for one calibrated user.
+- **Signal and feature:** For each accepted member timestamp, baseline-correct gyroscope X, find its positive and negative extrema within ±50 ms, and sum them as `gyro_x_peak_balance_deg_s`. Aggregate the two or three member values by median before applying a calibrated left/right threshold and guard band.
+- **Calibration needs:** Required per user and machine. Calibration establishes orientation, lower/upper boundaries, and an unknown guard band from labelled left/right double/triple gestures. Missing, stale, or near-boundary gyro data must return unknown and dispatch nothing; no universal threshold is claimed.
+- **Confidence:** **VALIDATED for the measured user and Mac14,2 (2026-08-14)** — see [Spatial Multi-Tap Probe Result](../probe-results/2026-08-14-mac14-2-multitap-region-gyro.md). A 40-gesture training capture (`captures/20260814-030157-region-multitap-pilot`) and a separate 40-gesture validation capture after independently repositioning the Mac (`captures/20260814-031042-region-multitap-pilot`) each contained 10 gestures per side/pattern. Both accelerometer and gyroscope delivered at approximately 798 Hz. Models and thresholds fitted only on training were frozen before transfer: first-member, mean-member, and median-member strategies each classified 40/40 validation gestures correctly; majority vote classified 39/40 with one unknown and zero wrong; unanimous vote classified 37/40 with three unknown and zero wrong. Median aggregation is the production choice because it uses every resolved member, transferred perfectly, and avoided the validation coverage loss observed with voting.
+- **Product implication:** Exactly four gestures enter scope: left/right double and left/right triple. Single taps may remain detectable for diagnostics but are not assignable actions.
+- **Limits:** Evidence covers one user, one Mac14,2 / Apple M2, macOS 26.2, one table, and two same-day placements. It does not establish cross-user, cross-model, long-duration, or unconstrained-environment performance.
+- **Fails if:** A frozen, per-user calibrated model cannot maintain at least 95% precision per side and 90% coverage per side/pattern after repositioning, or if unknown/missing gyro input can dispatch an action. Neither failure occurred in this validation pair, but both remain release gates.
 
 ## H-HAND-NEAR — Top-display hand-near / cover gesture
 

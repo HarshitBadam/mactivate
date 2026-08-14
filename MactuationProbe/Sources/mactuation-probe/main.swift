@@ -38,6 +38,14 @@ private struct Arguments {
         }
         return value
     }
+
+    func integer(after flag: String, default defaultValue: Int) throws -> Int {
+        guard let raw = try value(after: flag) else { return defaultValue }
+        guard let value = Int(raw), value > 0 else {
+            throw ProbeError.usage("\(flag) must be a positive integer")
+        }
+        return value
+    }
 }
 
 private final class ALSRunState {
@@ -165,40 +173,42 @@ private final class IMUCaptureController {
     let startedAt = Date()
 
     private(set) var startUptime = ProcessInfo.processInfo.systemUptime
-    private(set) var writer: CaptureWriter?
-    private(set) var captureError: Error?
+    private var writer: CaptureWriter?
+    private var _captureError: Error?
     private var markerRepetition = 0
     private var finalized = false
     private var discarded = false
+    private let writerLock = NSLock()
+    private let tapLock = NSLock()
+    private let tapStream: TapStreamClassifier?
+    private var tapCandidates: [TapEventFeatures] = []
+    private var tapGroups: [TapGroup] = []
+    private var latestAccelerometerTimestamp: SensorTimestamp = 0
 
-    init(source: SPUIMUSource, label: String, markerEnabled: Bool, duration: TimeInterval) {
+    var captureError: Error? {
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        return _captureError
+    }
+
+    init(
+        source: SPUIMUSource,
+        label: String,
+        markerEnabled: Bool,
+        duration: TimeInterval,
+        tapDetectionRateHz: Double? = nil
+    ) {
         self.source = source
         self.label = label
         self.markerEnabled = markerEnabled
         requestedDuration = duration
+        tapStream = tapDetectionRateHz.flatMap {
+            try? TapStreamClassifier(sampleRateHz: $0)
+        }
     }
 
     func start() throws {
         startUptime = ProcessInfo.processInfo.systemUptime
-        try source.start { [weak self] event in
-            guard let self else { return }
-            switch event {
-            case .sample(let sample):
-                guard self.captureError == nil else { return }
-                do {
-                    try self.writer?.append(sample)
-                } catch {
-                    self.captureError = error
-                }
-            case .failed(_, let reason):
-                self.captureError = ProbeError.hardware(reason)
-            case .warning(_, let message):
-                FileHandle.standardError.write(Data("warning: \(message)\n".utf8))
-            case .completed:
-                break
-            }
-        }
-
         do {
             let environment = collectCaptureEnvironment(
                 requiredPrivileges: geteuid() == 0 ? ["root"] : []
@@ -221,14 +231,37 @@ private final class IMUCaptureController {
                 ),
                 manifest: manifest
             )
+            try source.start { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .sample(let sample):
+                    self.appendSample(sample)
+                    self.processTapDetection(sample)
+                case .failed(_, let reason):
+                    self.setCaptureError(ProbeError.hardware(reason))
+                case .warning(_, let message):
+                    FileHandle.standardError.write(
+                        Data("warning: \(message)\n".utf8)
+                    )
+                case .completed:
+                    break
+                }
+            }
         } catch {
             source.stop()
+            if let directory = writer?.directory {
+                try? FileManager.default.removeItem(at: directory)
+            }
+            writer = nil
             throw error
         }
     }
 
     func addMarker() {
-        guard markerEnabled, let writer else { return }
+        guard markerEnabled else { return }
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard let writer else { return }
         markerRepetition += 1
         let now = max(0, ProcessInfo.processInfo.systemUptime - startUptime)
         writer.addLabel(LabelSpan(
@@ -240,12 +273,108 @@ private final class IMUCaptureController {
         print(String(format: "Marker %d at %.6f s", markerRepetition, now))
     }
 
+    func addRegionMarker(
+        side: TapRegionProbeSide,
+        intensity: TapRegionProbeIntensity,
+        repetition: Int,
+        candidate: TapEventFeatures,
+        preRoll: Double = 0.15,
+        postRoll: Double = 0.50
+    ) {
+        guard markerEnabled else { return }
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard let writer else { return }
+        writer.addLabel(LabelSpan(
+            start: max(0, candidate.time - preRoll),
+            end: candidate.time + postRoll,
+            label: "palm-\(side.rawValue)",
+            repetition: repetition,
+            intensity: intensity.rawValue,
+            notes: "auto-detected general tap; peak=\(candidate.time)"
+        ))
+    }
+
+    func addRegionMultiTapLabels(
+        side: TapRegionProbeSide,
+        pattern: TapRegionMultiTapPattern,
+        repetition: Int,
+        group: TapGroup,
+        preRoll: Double = 0.15,
+        postRoll: Double = 0.50
+    ) {
+        guard markerEnabled else { return }
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard let writer else { return }
+        for (offset, member) in group.members.enumerated() {
+            writer.addLabel(LabelSpan(
+                start: max(0, member.time - preRoll),
+                end: member.time + postRoll,
+                label: "palm-\(side.rawValue)",
+                repetition: repetition,
+                intensity: pattern.analysisIntensity.rawValue,
+                notes: "auto-detected multi-tap; pattern=\(pattern.rawValue); " +
+                    "member=\(offset + 1)/\(group.members.count); peak=\(member.time)"
+            ))
+        }
+    }
+
+    func addRestLabel(start: Double, end: Double) {
+        guard markerEnabled else { return }
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard let writer else { return }
+        writer.addLabel(LabelSpan(
+            start: start,
+            end: end,
+            label: "rest",
+            repetition: 1,
+            notes: "hands off; Mac stationary on hard table"
+        ))
+    }
+
+    var captureDirectory: URL? {
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        return writer?.directory
+    }
+
+    var latestTapSensorTimestamp: SensorTimestamp {
+        tapLock.lock()
+        defer { tapLock.unlock() }
+        return latestAccelerometerTimestamp
+    }
+
+    func consumeTapCandidate(
+        after timestamp: SensorTimestamp
+    ) -> TapEventFeatures? {
+        tapLock.lock()
+        defer { tapLock.unlock() }
+        tapCandidates.removeAll { $0.time <= timestamp }
+        guard !tapCandidates.isEmpty else { return nil }
+        return tapCandidates.removeFirst()
+    }
+
+    func consumeTapGroup(after timestamp: SensorTimestamp) -> TapGroup? {
+        tapLock.lock()
+        defer { tapLock.unlock() }
+        tapGroups.removeAll {
+            guard let first = $0.members.first else { return true }
+            return first.time <= timestamp
+        }
+        guard !tapGroups.isEmpty else { return nil }
+        return tapGroups.removeFirst()
+    }
+
     func finish() throws {
         guard !finalized, !discarded else { return }
         finalized = true
         let elapsed = max(0, ProcessInfo.processInfo.systemUptime - startUptime)
 
         source.stop()
+        writerLock.lock()
+        defer { writerLock.unlock() }
         guard let writer else { return }
         if !markerEnabled {
             writer.addLabel(LabelSpan(
@@ -287,10 +416,45 @@ private final class IMUCaptureController {
         guard !finalized, !discarded else { return }
         discarded = true
         source.stop()
+        writerLock.lock()
+        defer { writerLock.unlock() }
         if let directory = writer?.directory {
             try? FileManager.default.removeItem(at: directory)
         }
         writer = nil
+    }
+
+    private func setCaptureError(_ error: Error) {
+        writerLock.lock()
+        if _captureError == nil { _captureError = error }
+        writerLock.unlock()
+    }
+
+    private func appendSample(_ sample: SensorSample) {
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard _captureError == nil else { return }
+        do {
+            try writer?.append(sample)
+        } catch {
+            _captureError = error
+        }
+    }
+
+    private func processTapDetection(_ sample: SensorSample) {
+        guard case .imu(let path, let imu) = sample,
+              path == .spuAccelerometer,
+              let tapStream else { return }
+        tapLock.lock()
+        defer { tapLock.unlock() }
+        latestAccelerometerTimestamp = imu.timestamp
+        do {
+            let update = try tapStream.appendWithFeedback(imu)
+            tapCandidates.append(contentsOf: update.candidates)
+            tapGroups.append(contentsOf: update.resolvedGroups)
+        } catch {
+            setCaptureError(error)
+        }
     }
 }
 
@@ -719,9 +883,15 @@ private func runIMUCapture(_ arguments: Arguments) throws {
     runLoop(until: initialDeadline) {
         source.totalReportCount > 0 || source.malformedReport != nil
     }
-    if source.totalReportCount == 0 && source.malformedReport == nil &&
+    let missingPaths = source.paths.filter {
+        source.reportCount(for: $0) == 0
+    }
+    if !missingPaths.isEmpty && source.malformedReport == nil &&
         ProcessInfo.processInfo.systemUptime < deadline {
-        print("No reports arrived without wake properties; applying wake sequence.")
+        print(
+            "No reports from \(missingPaths.map(\.rawValue).joined(separator: ", ")); " +
+                "applying wake sequence."
+        )
         do {
             try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
         } catch let error as HardwareError where error.isPrivilegeFailure {
@@ -754,6 +924,801 @@ private func runIMUCapture(_ arguments: Arguments) throws {
     }
 }
 
+private struct RegionCaptureTrial {
+    var side: TapRegionProbeSide
+    var intensity: TapRegionProbeIntensity
+    var repetition: Int
+}
+
+private struct RegionMultiTapTrial {
+    var side: TapRegionProbeSide
+    var pattern: TapRegionMultiTapPattern
+    var repetition: Int
+}
+
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed == 0 ? 0x9E37_79B9_7F4A_7C15 : seed
+    }
+
+    mutating func next() -> UInt64 {
+        state = state &* 6_364_136_223_846_793_005 &+ 1
+        return state
+    }
+}
+
+private func regionTrials(count: Int, seed: UInt64) -> [RegionCaptureTrial] {
+    var trials: [RegionCaptureTrial] = []
+    for repetition in 1...count {
+        for intensity in TapRegionProbeIntensity.allCases {
+            for side in TapRegionProbeSide.allCases {
+                trials.append(RegionCaptureTrial(
+                    side: side,
+                    intensity: intensity,
+                    repetition: repetition
+                ))
+            }
+        }
+    }
+    var generator = SeededGenerator(seed: seed)
+    trials.shuffle(using: &generator)
+    return trials
+}
+
+private func regionMultiTapTrials(
+    count: Int,
+    seed: UInt64
+) -> [RegionMultiTapTrial] {
+    var trials: [RegionMultiTapTrial] = []
+    for repetition in 1...count {
+        for pattern in TapRegionMultiTapPattern.allCases {
+            for side in TapRegionProbeSide.allCases {
+                trials.append(RegionMultiTapTrial(
+                    side: side,
+                    pattern: pattern,
+                    repetition: repetition
+                ))
+            }
+        }
+    }
+    var generator = SeededGenerator(seed: seed)
+    trials.shuffle(using: &generator)
+    return trials
+}
+
+private func printRegionMetrics(
+    _ title: String,
+    metrics: TapRegionQualificationMetrics
+) {
+    print("\(title):")
+    print(String(
+        format: "  precision: left %.1f%%  right %.1f%%",
+        metrics.leftPrecision * 100,
+        metrics.rightPrecision * 100
+    ))
+    for key in metrics.groupCoverage.keys.sorted() {
+        print(String(
+            format: "  correct coverage %@: %.1f%%",
+            key,
+            metrics.groupCoverage[key, default: 0] * 100
+        ))
+    }
+    print(String(
+        format: "  classified: %.1f%%  wrong: %d  ambiguous: %d",
+        metrics.classifiedFraction * 100,
+        metrics.incorrect,
+        metrics.ambiguous
+    ))
+}
+
+private func printRegionFit(
+    _ fit: TapRegionThresholdFit,
+    validation: [TapRegionProbeObservation]? = nil
+) {
+    let model = fit.model
+    print("Frozen scalar model:")
+    print("  feature: \(model.featureName)")
+    print(String(
+        format: "  %@ below %.8f, ambiguous through %.8f, %@ above",
+        model.lowerSide.rawValue,
+        model.lowerBoundary,
+        model.upperBoundary,
+        model.lowerSide == .left ? "right" : "left"
+    ))
+    printRegionMetrics("Training (feature selection)", metrics: fit.metrics)
+    guard let validation else {
+        print("Result: exploratory only — collect an independent validation session.")
+        return
+    }
+    let metrics = TapRegionProbeAnalyzer.evaluate(
+        model,
+        observations: validation
+    )
+    printRegionMetrics("Independent validation", metrics: metrics)
+    print(metrics.qualifies
+        ? "Result: PASS — meets 95% precision and 90% per-group coverage gates."
+        : "Result: FAIL — do not expose left/right zones with this model.")
+}
+
+private func printRegionScreening(
+    _ observations: [TapRegionProbeObservation]
+) throws {
+    let ranked = try TapRegionProbeAnalyzer.rankedFits(observations)
+    print("Top scalar feature screens:")
+    for fit in ranked.prefix(5) {
+        print(String(
+            format: "  %@ — precision L %.1f%% R %.1f%%, minimum coverage %.1f%%, wrong %d",
+            fit.model.featureName,
+            fit.metrics.leftPrecision * 100,
+            fit.metrics.rightPrecision * 100,
+            fit.metrics.minimumGroupCoverage * 100,
+            fit.metrics.incorrect
+        ))
+    }
+    let foldCount = min(
+        5,
+        Set(observations.map(\.repetition)).count
+    )
+    guard foldCount >= 2 else {
+        print("Held-out screening skipped: at least two repetitions are required.")
+        return
+    }
+    let crossValidation = try TapRegionProbeAnalyzer.crossValidate(
+        observations,
+        folds: foldCount
+    )
+    let selectedFeatures = Dictionary(
+        grouping: crossValidation.foldModels,
+        by: \.featureName
+    ).mapValues(\.count)
+    printRegionMetrics(
+        "\(foldCount)-fold held-out screening",
+        metrics: crossValidation.metrics
+    )
+    print(
+        "  selected features by fold: " +
+            selectedFeatures.keys.sorted().map {
+                "\($0)=\(selectedFeatures[$0, default: 0])"
+            }.joined(separator: ", ")
+    )
+
+    let linearFits = try TapRegionLinearProbeAnalyzer.rankedFits(observations)
+    print("Top regularized linear feature sets:")
+    for fit in linearFits.prefix(5) {
+        print(String(
+            format: "  %@ — precision L %.1f%% R %.1f%%, minimum coverage %.1f%%, wrong %d",
+            fit.model.name,
+            fit.metrics.leftPrecision * 100,
+            fit.metrics.rightPrecision * 100,
+            fit.metrics.minimumGroupCoverage * 100,
+            fit.metrics.incorrect
+        ))
+    }
+    let linearCrossValidation = try TapRegionLinearProbeAnalyzer.crossValidate(
+        observations,
+        folds: foldCount
+    )
+    let selectedLinearModels = Dictionary(
+        grouping: linearCrossValidation.foldModels,
+        by: \.name
+    ).mapValues(\.count)
+    printRegionMetrics(
+        "\(foldCount)-fold held-out linear screening",
+        metrics: linearCrossValidation.metrics
+    )
+    print(
+        "  selected models by fold: " +
+            selectedLinearModels.keys.sorted().map {
+                "\($0)=\(selectedLinearModels[$0, default: 0])"
+            }.joined(separator: ", ")
+    )
+}
+
+private func printRegionTransferCandidates(
+    training: [TapRegionProbeObservation],
+    validation: [TapRegionProbeObservation]
+) throws {
+    let transferred = try TapRegionProbeAnalyzer.rankedFits(training).map {
+        (
+            fit: $0,
+            validation: TapRegionProbeAnalyzer.evaluate(
+                $0.model,
+                observations: validation
+            )
+        )
+    }.sorted {
+        let lhs = [
+            $0.validation.qualifies ? 1.0 : 0,
+            $0.validation.minimumGroupCoverage,
+            min($0.validation.leftPrecision, $0.validation.rightPrecision),
+            -Double($0.validation.incorrect)
+        ]
+        let rhs = [
+            $1.validation.qualifies ? 1.0 : 0,
+            $1.validation.minimumGroupCoverage,
+            min($1.validation.leftPrecision, $1.validation.rightPrecision),
+            -Double($1.validation.incorrect)
+        ]
+        if lhs != rhs {
+            return !lhs.lexicographicallyPrecedes(rhs)
+        }
+        return $0.fit.model.featureName < $1.fit.model.featureName
+    }
+
+    print("Frozen pilot-feature transfer ranking:")
+    for result in transferred.prefix(5) {
+        print(String(
+            format: "  %@ — validation precision L %.1f%% R %.1f%%, minimum coverage %.1f%%, wrong %d",
+            result.fit.model.featureName,
+            result.validation.leftPrecision * 100,
+            result.validation.rightPrecision * 100,
+            result.validation.minimumGroupCoverage * 100,
+            result.validation.incorrect
+        ))
+    }
+}
+
+private func printMultiTapMetrics(
+    _ title: String,
+    metrics: TapRegionQualificationMetrics
+) {
+    let displayNames = [
+        "left-comfort": "left-double",
+        "left-firm": "left-triple",
+        "right-comfort": "right-double",
+        "right-firm": "right-triple"
+    ]
+    print("\(title):")
+    print(String(
+        format: "    precision: left %.1f%%  right %.1f%%",
+        metrics.leftPrecision * 100,
+        metrics.rightPrecision * 100
+    ))
+    for key in metrics.groupCoverage.keys.sorted() {
+        print(String(
+            format: "    correct coverage %@: %.1f%%",
+            displayNames[key] ?? key,
+            metrics.groupCoverage[key, default: 0] * 100
+        ))
+    }
+    print(String(
+        format: "    classified: %.1f%%  wrong: %d  ambiguous: %d",
+        metrics.classifiedFraction * 100,
+        metrics.incorrect,
+        metrics.ambiguous
+    ))
+}
+
+private func printMultiTapScreening(
+    _ gestures: [TapRegionMultiTapGesture]
+) throws {
+    print(
+        "Multi-tap observations: \(gestures.count) gestures, " +
+            "\(gestures.reduce(0) { $0 + $1.members.count }) detected impacts"
+    )
+    for result in try TapRegionMultiTapProbeAnalyzer.screen(gestures) {
+        print("Strategy: \(result.name)")
+        printMultiTapMetrics(
+            "  Training",
+            metrics: result.trainingMetrics
+        )
+        printMultiTapMetrics(
+            "  Held-out",
+            metrics: result.crossValidationMetrics
+        )
+        print(
+            "    selected features: " +
+                result.selectedFeatures.keys.sorted().map {
+                    "\($0)=\(result.selectedFeatures[$0, default: 0])"
+                }.joined(separator: ", ")
+        )
+    }
+}
+
+private func runRegionAnalysis(_ arguments: Arguments) throws {
+    guard let trainingPath = try arguments.value(after: "--training") else {
+        throw ProbeError.usage(
+            "region-analyze requires --training <capture-directory>"
+        )
+    }
+    let trainingReader = try CaptureReader(
+        directory: URL(fileURLWithPath: trainingPath).standardizedFileURL
+    )
+    var training = try TapRegionProbeAnalyzer.observations(from: trainingReader)
+    if let additionalPath = try arguments.value(after: "--training-additional") {
+        let additionalReader = try CaptureReader(
+            directory: URL(fileURLWithPath: additionalPath).standardizedFileURL
+        )
+        training += try TapRegionProbeAnalyzer.observations(
+            from: additionalReader
+        )
+    }
+    let fit = try TapRegionProbeAnalyzer.fit(training)
+    try printRegionScreening(training)
+
+    if let validationPath = try arguments.value(after: "--validation") {
+        let validationReader = try CaptureReader(
+            directory: URL(fileURLWithPath: validationPath).standardizedFileURL
+        )
+        let validation = try TapRegionProbeAnalyzer.observations(
+            from: validationReader
+        )
+        try printRegionTransferCandidates(
+            training: training,
+            validation: validation
+        )
+        printRegionFit(fit, validation: validation)
+    } else {
+        printRegionFit(fit)
+    }
+}
+
+private func runRegionMultiTapAnalysis(_ arguments: Arguments) throws {
+    guard let trainingPath = try arguments.value(after: "--training") else {
+        throw ProbeError.usage(
+            "region-multitap-analyze requires --training <capture-directory>"
+        )
+    }
+    let training = try TapRegionMultiTapProbeAnalyzer.gestures(
+        from: CaptureReader(
+            directory: URL(fileURLWithPath: trainingPath).standardizedFileURL
+        )
+    )
+    let fitted = try TapRegionMultiTapProbeAnalyzer.fitStrategies(training)
+    let validation: [TapRegionMultiTapGesture]?
+    if let validationPath = try arguments.value(after: "--validation") {
+        validation = try TapRegionMultiTapProbeAnalyzer.gestures(
+            from: CaptureReader(
+                directory: URL(
+                    fileURLWithPath: validationPath
+                ).standardizedFileURL
+            )
+        )
+    } else {
+        validation = nil
+    }
+
+    for strategy in fitted {
+        print("Frozen strategy: \(strategy.strategy.name)")
+        print("  feature: \(strategy.model.featureName)")
+        printMultiTapMetrics(
+            "  Training",
+            metrics: strategy.trainingMetrics
+        )
+        if let validation {
+            let metrics = TapRegionMultiTapProbeAnalyzer.evaluate(
+                strategy,
+                gestures: validation
+            )
+            printMultiTapMetrics("  Independent validation", metrics: metrics)
+            print(metrics.qualifies
+                ? "  Result: PASS"
+                : "  Result: FAIL")
+        }
+    }
+}
+
+private func runRegionCapture(_ arguments: Arguments) throws {
+    let count = try arguments.integer(after: "--count", default: 10)
+    guard count <= 100 else {
+        throw ProbeError.usage("--count must be between 1 and 100")
+    }
+    let rateHz = try arguments.double(after: "--rate-hz", default: 800)
+    guard rateHz <= 10_000 else {
+        throw ProbeError.usage("--rate-hz must be between 1 and 10000")
+    }
+    let seed = UInt64(try arguments.integer(after: "--seed", default: 42))
+    let reportInterval = Int((1_000_000 / rateHz).rounded())
+    let baselineDuration = 5.0
+    let recoveryDuration = 0.75
+    let estimatedTrialDuration = 3.0
+    let trials = regionTrials(count: count, seed: seed)
+    let requestedDuration = 2 + baselineDuration +
+        Double(trials.count) * estimatedTrialDuration + 2
+
+    print("Guided left/right palm-region pilot")
+    print("  Put the Mac flat on a hard table.")
+    print("  Keep both hands off during baseline.")
+    print("  Each target remains on screen until a tap is detected.")
+    print("  Read it at your own pace, then tap the requested palm-rest side once.")
+    print("  The next target appears only after that tap.")
+    print("  Comfort = normal easy tap; firm = deliberate but not painful.")
+    print("  Trials: \(trials.count) (\(count) per side/force)")
+    print("")
+
+    let source = try SPUIMUSource(
+        includeGyroscope: true,
+        startupReportInterval: reportInterval
+    )
+    let controller = IMUCaptureController(
+        source: source,
+        label: "region-pilot",
+        markerEnabled: true,
+        duration: requestedDuration,
+        tapDetectionRateHz: rateHz
+    )
+    do {
+        try controller.start()
+    } catch let error as HardwareError where error.isPrivilegeFailure {
+        throw ProbeError.hardware(
+            "\(error)\nRerun with: sudo .build/debug/mactuation-probe region-capture ..."
+        )
+    }
+    defer { try? controller.finish() }
+
+    signal(SIGINT, SIG_IGN)
+    let signalSource = DispatchSource.makeSignalSource(
+        signal: SIGINT,
+        queue: .main
+    )
+    signalSource.setEventHandler {
+        do {
+            try controller.finish()
+        } catch {
+            FileHandle.standardError.write(
+                Data("capture finalization failed: \(error)\n".utf8)
+            )
+        }
+        exit(130)
+    }
+    signalSource.resume()
+
+    let initialDeadline = controller.startUptime + 1
+    runLoop(until: initialDeadline) {
+        source.totalReportCount > 0 ||
+            source.malformedReport != nil ||
+            controller.captureError != nil
+    }
+    let missingPaths = source.paths.filter {
+        source.reportCount(for: $0) == 0
+    }
+    if !missingPaths.isEmpty,
+       source.malformedReport == nil,
+       controller.captureError == nil {
+        print(
+            "No reports from \(missingPaths.map(\.rawValue).joined(separator: ", ")); " +
+                "applying wake sequence."
+        )
+        do {
+            try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
+        } catch let error as HardwareError where error.isPrivilegeFailure {
+            controller.discard()
+            throw ProbeError.hardware(
+                "\(error)\nRerun with: sudo .build/debug/mactuation-probe region-capture ..."
+            )
+        }
+        runLoop(until: ProcessInfo.processInfo.systemUptime + 1) {
+            missingPaths.allSatisfy {
+                source.reportCount(for: $0) > 0
+            } || source.malformedReport != nil ||
+                controller.captureError != nil
+        }
+    }
+    let stillMissing = source.paths.filter {
+        source.reportCount(for: $0) == 0
+    }
+    guard stillMissing.isEmpty else {
+        controller.discard()
+        throw ProbeError.capture(
+            "no reports from \(stillMissing.map(\.rawValue).joined(separator: ", ")); " +
+                "capture stopped before the tap trials"
+        )
+    }
+
+    print("HANDS OFF — recording \(Int(baselineDuration)) s baseline...")
+    let baselineStart = max(
+        0,
+        ProcessInfo.processInfo.systemUptime - controller.startUptime
+    )
+    controller.addRestLabel(
+        start: baselineStart,
+        end: baselineStart + baselineDuration
+    )
+    runLoop(
+        until: ProcessInfo.processInfo.systemUptime + baselineDuration
+    ) {
+        source.malformedReport != nil || controller.captureError != nil
+    }
+
+    var completed = 0
+    for trial in trials {
+        if source.malformedReport != nil || controller.captureError != nil {
+            break
+        }
+        completed += 1
+        print("")
+        print(
+            "[\(completed)/\(trials.count)] TARGET: " +
+                "\(trial.side.rawValue.uppercased()) · " +
+                "\(trial.intensity.rawValue.uppercased())"
+        )
+        print("          Tap once whenever you are ready...")
+        FileHandle.standardOutput.synchronizeFile()
+        let armedAfter = controller.latestTapSensorTimestamp
+        var candidate: TapEventFeatures?
+        while candidate == nil,
+              source.malformedReport == nil,
+              controller.captureError == nil {
+            runLoop(until: ProcessInfo.processInfo.systemUptime + 0.05)
+            candidate = controller.consumeTapCandidate(after: armedAfter)
+        }
+        guard let candidate else { break }
+        controller.addRegionMarker(
+            side: trial.side,
+            intensity: trial.intensity,
+            repetition: trial.repetition,
+            candidate: candidate
+        )
+        print(String(
+            format: "          Detected at %.3f s (peak %.4f g)",
+            candidate.time,
+            candidate.peakG
+        ))
+        FileHandle.standardOutput.synchronizeFile()
+        runLoop(
+            until: ProcessInfo.processInfo.systemUptime + recoveryDuration
+        ) {
+            source.malformedReport != nil || controller.captureError != nil
+        }
+    }
+
+    print("Done. Hands off for 2 s...")
+    runLoop(until: ProcessInfo.processInfo.systemUptime + 2)
+    signalSource.cancel()
+    let directory = controller.captureDirectory
+    try controller.finish()
+
+    if let malformed = source.malformedReport {
+        throw ProbeError.capture("capture aborted: \(malformed)")
+    }
+    if let error = controller.captureError { throw error }
+    for path in source.paths {
+        let elapsed = max(
+            0.001,
+            ProcessInfo.processInfo.systemUptime - controller.startUptime
+        )
+        print(String(
+            format: "%@ reports: %d (effective %.3f Hz)",
+            path.rawValue,
+            source.reportCount(for: path),
+            source.effectiveRate(for: path, elapsed: elapsed)
+        ))
+    }
+    guard let directory else {
+        throw ProbeError.capture("capture directory was not created")
+    }
+    let observations = try TapRegionProbeAnalyzer.observations(
+        from: CaptureReader(directory: directory)
+    )
+    try printRegionScreening(observations)
+    printRegionFit(try TapRegionProbeAnalyzer.fit(observations))
+}
+
+private func runRegionMultiTapCapture(_ arguments: Arguments) throws {
+    let count = try arguments.integer(after: "--count", default: 10)
+    guard count <= 100 else {
+        throw ProbeError.usage("--count must be between 1 and 100")
+    }
+    let rateHz = try arguments.double(after: "--rate-hz", default: 800)
+    guard rateHz <= 10_000 else {
+        throw ProbeError.usage("--rate-hz must be between 1 and 10000")
+    }
+    let seed = UInt64(try arguments.integer(after: "--seed", default: 42))
+    let reportInterval = Int((1_000_000 / rateHz).rounded())
+    let baselineDuration = 5.0
+    let recoveryDuration = 0.75
+    let trials = regionMultiTapTrials(count: count, seed: seed)
+    let requestedDuration = 2 + baselineDuration +
+        Double(trials.count) * 5 + 2
+
+    print("Guided left/right multi-tap region study")
+    print("  Put the Mac flat on a hard table.")
+    print("  Keep both hands off during baseline.")
+    print("  Each target remains until the requested gesture is detected.")
+    print("  Tap at a natural cadence and consistent force.")
+    print("  If the detected count is wrong, the same target will retry.")
+    print("  Trials: \(trials.count) (\(count) per side/pattern)")
+    print("")
+
+    let source = try SPUIMUSource(
+        includeGyroscope: true,
+        startupReportInterval: reportInterval
+    )
+    let controller = IMUCaptureController(
+        source: source,
+        label: "region-multitap-pilot",
+        markerEnabled: true,
+        duration: requestedDuration,
+        tapDetectionRateHz: rateHz
+    )
+    do {
+        try controller.start()
+    } catch let error as HardwareError where error.isPrivilegeFailure {
+        throw ProbeError.hardware(
+            "\(error)\nRerun with: sudo .build/debug/mactuation-probe " +
+                "region-multitap-capture ..."
+        )
+    }
+    defer { try? controller.finish() }
+
+    signal(SIGINT, SIG_IGN)
+    let signalSource = DispatchSource.makeSignalSource(
+        signal: SIGINT,
+        queue: .main
+    )
+    signalSource.setEventHandler {
+        do {
+            try controller.finish()
+        } catch {
+            FileHandle.standardError.write(
+                Data("capture finalization failed: \(error)\n".utf8)
+            )
+        }
+        exit(130)
+    }
+    signalSource.resume()
+
+    let initialDeadline = controller.startUptime + 1
+    runLoop(until: initialDeadline) {
+        source.totalReportCount > 0 ||
+            source.malformedReport != nil ||
+            controller.captureError != nil
+    }
+    let missingPaths = source.paths.filter {
+        source.reportCount(for: $0) == 0
+    }
+    if !missingPaths.isEmpty,
+       source.malformedReport == nil,
+       controller.captureError == nil {
+        print(
+            "No reports from \(missingPaths.map(\.rawValue).joined(separator: ", ")); " +
+                "applying wake sequence."
+        )
+        do {
+            try source.applyWakeSequenceIfNeeded(reportInterval: reportInterval)
+        } catch let error as HardwareError where error.isPrivilegeFailure {
+            controller.discard()
+            throw ProbeError.hardware(
+                "\(error)\nRerun with: sudo .build/debug/mactuation-probe " +
+                    "region-multitap-capture ..."
+            )
+        }
+        runLoop(until: ProcessInfo.processInfo.systemUptime + 1) {
+            missingPaths.allSatisfy {
+                source.reportCount(for: $0) > 0
+            } || source.malformedReport != nil ||
+                controller.captureError != nil
+        }
+    }
+    let stillMissing = source.paths.filter {
+        source.reportCount(for: $0) == 0
+    }
+    guard stillMissing.isEmpty else {
+        controller.discard()
+        throw ProbeError.capture(
+            "no reports from \(stillMissing.map(\.rawValue).joined(separator: ", ")); " +
+                "capture stopped before the multi-tap trials"
+        )
+    }
+
+    print("HANDS OFF — recording \(Int(baselineDuration)) s baseline...")
+    let baselineStart = max(
+        0,
+        ProcessInfo.processInfo.systemUptime - controller.startUptime
+    )
+    controller.addRestLabel(
+        start: baselineStart,
+        end: baselineStart + baselineDuration
+    )
+    runLoop(
+        until: ProcessInfo.processInfo.systemUptime + baselineDuration
+    ) {
+        source.malformedReport != nil || controller.captureError != nil
+    }
+
+    var completed = 0
+    for trial in trials {
+        if source.malformedReport != nil || controller.captureError != nil {
+            break
+        }
+        completed += 1
+        print("")
+        print(
+            "[\(completed)/\(trials.count)] TARGET: " +
+                "\(trial.side.rawValue.uppercased()) · " +
+                "\(trial.pattern.rawValue.uppercased())"
+        )
+
+        var matchedGroup: TapGroup?
+        var attempt = 0
+        while matchedGroup == nil,
+              source.malformedReport == nil,
+              controller.captureError == nil {
+            attempt += 1
+            print(
+                attempt == 1
+                    ? "          Perform the gesture whenever you are ready..."
+                    : "          Retry the same gesture whenever you are ready..."
+            )
+            FileHandle.standardOutput.synchronizeFile()
+            let armedAfter = controller.latestTapSensorTimestamp
+            var group: TapGroup?
+            while group == nil,
+                  source.malformedReport == nil,
+                  controller.captureError == nil {
+                runLoop(until: ProcessInfo.processInfo.systemUptime + 0.05)
+                group = controller.consumeTapGroup(after: armedAfter)
+            }
+            guard let group else { break }
+            if group.members.count == trial.pattern.memberCount {
+                matchedGroup = group
+            } else {
+                print(
+                    "          Detected \(group.members.count) impact" +
+                        "\(group.members.count == 1 ? "" : "s"); expected " +
+                        "\(trial.pattern.memberCount)."
+                )
+                runLoop(
+                    until: ProcessInfo.processInfo.systemUptime +
+                        recoveryDuration
+                )
+            }
+        }
+        guard let group = matchedGroup else { break }
+        controller.addRegionMultiTapLabels(
+            side: trial.side,
+            pattern: trial.pattern,
+            repetition: trial.repetition,
+            group: group
+        )
+        let peaks = group.members.map {
+            String(format: "%.4f", $0.peakG)
+        }.joined(separator: ", ")
+        print(
+            "          Detected \(group.members.count) taps " +
+                "(peaks \(peaks) g)"
+        )
+        FileHandle.standardOutput.synchronizeFile()
+        runLoop(
+            until: ProcessInfo.processInfo.systemUptime + recoveryDuration
+        ) {
+            source.malformedReport != nil || controller.captureError != nil
+        }
+    }
+
+    print("Done. Hands off for 2 s...")
+    runLoop(until: ProcessInfo.processInfo.systemUptime + 2)
+    signalSource.cancel()
+    let directory = controller.captureDirectory
+    try controller.finish()
+
+    if let malformed = source.malformedReport {
+        throw ProbeError.capture("capture aborted: \(malformed)")
+    }
+    if let error = controller.captureError { throw error }
+    for path in source.paths {
+        let elapsed = max(
+            0.001,
+            ProcessInfo.processInfo.systemUptime - controller.startUptime
+        )
+        print(String(
+            format: "%@ reports: %d (effective %.3f Hz)",
+            path.rawValue,
+            source.reportCount(for: path),
+            source.effectiveRate(for: path, elapsed: elapsed)
+        ))
+    }
+    guard let directory else {
+        throw ProbeError.capture("capture directory was not created")
+    }
+    let gestures = try TapRegionMultiTapProbeAnalyzer.gestures(
+        from: CaptureReader(directory: directory)
+    )
+    try printMultiTapScreening(gestures)
+}
+
 private func usage() -> String {
     """
     Usage:
@@ -762,6 +1727,10 @@ private func usage() -> String {
       mactuation-probe als-watch [--duration seconds] [--poll-hz hz] [--report-interval us] [--panel-hints] [--capture --label label]
       mactuation-probe tap-watch [--duration seconds] [--rate-hz hz]
       mactuation-probe imu-capture [--duration seconds] --label label [--rate-hz hz] [--gyro] [--marker]
+      mactuation-probe region-capture [--count per-side-force] [--rate-hz hz] [--seed integer]
+      mactuation-probe region-multitap-capture [--count per-side-pattern] [--rate-hz hz] [--seed integer]
+      mactuation-probe region-multitap-analyze --training capture-directory [--validation capture-directory]
+      mactuation-probe region-analyze --training capture-directory [--training-additional capture-directory] [--validation capture-directory]
     """
 }
 
@@ -782,6 +1751,14 @@ do {
         try runTapWatch(arguments)
     case "imu-capture":
         try runIMUCapture(arguments)
+    case "region-capture":
+        try runRegionCapture(arguments)
+    case "region-multitap-capture":
+        try runRegionMultiTapCapture(arguments)
+    case "region-multitap-analyze":
+        try runRegionMultiTapAnalysis(arguments)
+    case "region-analyze":
+        try runRegionAnalysis(arguments)
     case "help", "--help", "-h":
         print(usage())
     default:

@@ -6,15 +6,36 @@ import XCTest
 
 final class MactivateRuntimeControllerTests: XCTestCase {
     private let rate = 800.0
+    private let dualIMUPaths: [SensorPath] = [
+        .spuAccelerometer,
+        .spuGyroscope
+    ]
 
-    func testRoutesMappedSingleDoubleAndTripleExactlyOnce() throws {
-        let tapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+    private var personalTapCalibration: TapCalibration {
+        var calibration = TapCalibration.mac14_2Discovery
+        calibration.version = "personal-runtime-default"
+        return calibration
+    }
+
+    private var regionProfile: TapRegionCalibrationProfile {
+        TapRegionCalibrationProfile(
+            version: "personal-region-runtime-test",
+            lowerBoundary: -1,
+            upperBoundary: 1,
+            lowerSide: .left,
+            samplesPerGesture: 5
+        )
+    }
+
+    func testRoutesAllFourSpatialGesturesAndKeepsSingleNonActionable() throws {
+        let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(tapSources: [tapSource])
         let configuration = RuntimeConfiguration(
-            tapBindings: TapBindings(
-                single: "single.action",
-                double: "double.action",
-                triple: "triple.action"
+            spatialTapBindings: SpatialTapBindings(
+                leftDouble: "left.double",
+                leftTriple: "left.triple",
+                rightDouble: "right.double",
+                rightTriple: "right.triple"
             ),
             panelHintsEnabled: false
         )
@@ -25,35 +46,52 @@ final class MactivateRuntimeControllerTests: XCTestCase {
             to: tapSource,
             duration: 10,
             pulses: [
+                // Single remains diagnostic-only.
                 (1.0, 0, 0, 0.08),
-                (4.0, 0, 0, 0.08),
-                (4.4, 0, 0, 0.08),
-                (7.0, 0, 0, 0.08),
-                (7.35, 0, 0, 0.08),
-                (7.7, 0, 0, 0.08)
+                (3.0, 0, 0, 0.08),
+                (3.4, 0, 0, 0.08),
+                (6.0, 0, 0, 0.08),
+                (6.35, 0, 0, 0.08),
+                (6.7, 0, 0, 0.08)
             ]
+        )
+        sendIMU(
+            to: tapSource,
+            startTime: 10,
+            duration: 8,
+            pulses: [
+                (11.0, 0, 0, 0.08),
+                (11.4, 0, 0, 0.08),
+                (14.0, 0, 0, 0.08),
+                (14.35, 0, 0, 0.08),
+                (14.7, 0, 0, 0.08)
+            ],
+            gyroSide: .right
         )
         harness.drain()
 
         let actions = actionIntents(in: harness.collector.outputs)
         XCTAssertEqual(actions.map(\.0), [
-            ActionIdentifier(rawValue: "single.action"),
-            ActionIdentifier(rawValue: "double.action"),
-            ActionIdentifier(rawValue: "triple.action")
+            ActionIdentifier(rawValue: "left.double"),
+            ActionIdentifier(rawValue: "left.triple"),
+            ActionIdentifier(rawValue: "right.double"),
+            ActionIdentifier(rawValue: "right.triple")
         ])
-        XCTAssertEqual(actions.map(\.1.pattern), [.single, .double, .triple])
-        XCTAssertEqual(Set(actions.map(\.1.eventID)).count, 3)
+        XCTAssertEqual(actions.map(\.1.gesture), [
+            .leftDouble, .leftTriple, .rightDouble, .rightTriple
+        ])
+        XCTAssertEqual(Set(actions.map(\.1.eventID)).count, 4)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .acceptedNonActionable(.single)
+        })
 
         harness.controller.stop()
     }
 
     func testRejectedAndUnmappedGroupsFailClosed() throws {
-        let tapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(tapSources: [tapSource])
-        let configuration = RuntimeConfiguration(
-            tapBindings: TapBindings(single: "single.action"),
-            panelHintsEnabled: false
-        )
+        let configuration = RuntimeConfiguration(panelHintsEnabled: false)
         let harness = try makeHarness(factory: factory, configuration: configuration)
         harness.controller.start()
 
@@ -76,7 +114,7 @@ final class MactivateRuntimeControllerTests: XCTestCase {
             return value
         }
         XCTAssertTrue(feedback.contains {
-            $0.outcome == .acceptedUnmapped(.double)
+            $0.outcome == .acceptedUnmapped(.leftDouble)
         })
         XCTAssertTrue(feedback.contains {
             if case .rejected = $0.outcome {
@@ -87,15 +125,188 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         harness.controller.stop()
     }
 
+    func testMissingRegionProfileFailsClosedButExposesCalibrationFeatures()
+        throws {
+        let source = ScriptedSensorSource(paths: dualIMUPaths)
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [source]),
+            configuration: RuntimeConfiguration(
+                spatialTapBindings: SpatialTapBindings(
+                    leftDouble: "left.double"
+                ),
+                panelHintsEnabled: false
+            ),
+            provideRegionProfile: false
+        )
+        harness.controller.start()
+
+        sendIMU(
+            to: source,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)]
+        )
+        harness.drain()
+
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .spatialUnavailable(
+                pattern: .double,
+                reason: .calibrationRequired
+            ) && $0.regionMemberFeatures.count == 2
+        })
+        harness.controller.stop()
+    }
+
+    func testDiscoveryTapCalibrationCannotDispatchSpatialActions() throws {
+        let source = ScriptedSensorSource(paths: dualIMUPaths)
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [source]),
+            configuration: RuntimeConfiguration(
+                spatialTapBindings: SpatialTapBindings(
+                    leftDouble: "left.double"
+                ),
+                panelHintsEnabled: false
+            ),
+            tapCalibration: .mac14_2Discovery
+        )
+        harness.controller.start()
+
+        sendIMU(
+            to: source,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)]
+        )
+        harness.drain()
+
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .spatialUnavailable(
+                pattern: .double,
+                reason: .tapCalibrationRequired
+            )
+        })
+        harness.controller.stop()
+    }
+
+    func testMissingGyroscopeKeepsTapDiagnosticsButNeverDispatches() throws {
+        let source = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [source]),
+            configuration: RuntimeConfiguration(
+                spatialTapBindings: SpatialTapBindings(
+                    leftDouble: "left.double"
+                ),
+                panelHintsEnabled: false
+            )
+        )
+        harness.controller.start()
+
+        sendIMU(
+            to: source,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)]
+        )
+        harness.drain()
+
+        guard case .unavailable =
+                harness.controller.currentSnapshot.tapRegion else {
+            return XCTFail("missing gyro must be explicit")
+        }
+        guard case .available = harness.controller.currentSnapshot.tap else {
+            return XCTFail("accelerometer tap diagnostics should remain available")
+        }
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .spatialUnavailable(
+                pattern: .double,
+                reason: .insufficientGyroscopeData
+            )
+        })
+        harness.controller.stop()
+    }
+
+    func testAmbiguousRegionFeatureNeverDispatches() throws {
+        let source = ScriptedSensorSource(paths: dualIMUPaths)
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [source]),
+            configuration: RuntimeConfiguration(
+                spatialTapBindings: SpatialTapBindings(
+                    leftDouble: "left.double",
+                    rightDouble: "right.double"
+                ),
+                panelHintsEnabled: false
+            )
+        )
+        harness.controller.start()
+
+        sendIMU(
+            to: source,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)],
+            gyroSide: nil
+        )
+        harness.drain()
+
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .spatialUnavailable(
+                pattern: .double,
+                reason: .ambiguous
+            )
+        })
+        harness.controller.stop()
+    }
+
+    func testRegionProfileHotSwapDoesNotRestartSource() throws {
+        let source = ScriptedSensorSource(paths: dualIMUPaths)
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [source]),
+            configuration: RuntimeConfiguration(
+                spatialTapBindings: SpatialTapBindings(
+                    leftDouble: "left.double",
+                    rightDouble: "right.double"
+                ),
+                panelHintsEnabled: false
+            )
+        )
+        harness.controller.start()
+        sendIMU(
+            to: source,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)]
+        )
+        try harness.controller.applyTapRegionCalibration(
+            TapRegionCalibrationProfile(
+                version: "personal-region-swapped",
+                lowerBoundary: -1,
+                upperBoundary: 1,
+                lowerSide: .right,
+                samplesPerGesture: 5
+            )
+        )
+        sendIMU(
+            to: source,
+            startTime: 4,
+            duration: 4,
+            pulses: [(5, 0, 0, 0.08), (5.4, 0, 0, 0.08)]
+        )
+        harness.drain()
+
+        XCTAssertEqual(
+            actionIntents(in: harness.collector.outputs).map(\.0),
+            ["left.double", "right.double"]
+        )
+        XCTAssertEqual(source.startCount, 1)
+        XCTAssertEqual(source.stopCount, 0)
+        harness.controller.stop()
+    }
+
     func testCalibrationCanBeReplacedWithoutRestartingSource() throws {
-        let tapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(tapSources: [tapSource])
         let harness = try makeHarness(
             factory: factory,
-            configuration: RuntimeConfiguration(
-                tapBindings: TapBindings(single: "single.action"),
-                panelHintsEnabled: false
-            )
+            configuration: RuntimeConfiguration(panelHintsEnabled: false)
         )
         harness.controller.start()
         var calibration = TapCalibration.mac14_2Discovery
@@ -111,10 +322,10 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         harness.drain()
 
         XCTAssertEqual(tapSource.startCount, 1)
-        XCTAssertEqual(
-            actionIntents(in: harness.collector.outputs).map(\.0),
-            ["single.action"]
-        )
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .acceptedNonActionable(.single)
+        })
         harness.controller.stop()
     }
 
@@ -221,7 +432,10 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         )
         harness.controller.start()
 
-        try harness.controller.setTapBinding("single.action", for: .single)
+        try harness.controller.setSpatialTapBinding(
+            "left.double",
+            for: .leftDouble
+        )
         XCTAssertEqual(tapSource.startCount, 1)
         XCTAssertEqual(tapSource.stopCount, 0)
 
@@ -234,14 +448,14 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         XCTAssertEqual(tapSource.stopCount, 0)
         XCTAssertEqual(harness.controller.currentSnapshot.panelHint, .disabled)
         XCTAssertEqual(
-            store.load().configuration.tapBindings.single,
-            ActionIdentifier(rawValue: "single.action")
+            store.load().configuration.spatialTapBindings.leftDouble,
+            ActionIdentifier(rawValue: "left.double")
         )
         harness.controller.stop()
     }
 
     func testBindingChangePreservesAnInFlightTapGroup() throws {
-        let tapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(tapSources: [tapSource])
         let harness = try makeHarness(
             factory: factory,
@@ -255,18 +469,21 @@ final class MactivateRuntimeControllerTests: XCTestCase {
             duration: 1.5,
             pulses: [(1.0, 0, 0, 0.08)]
         )
-        try harness.controller.setTapBinding("new.single.action", for: .single)
+        try harness.controller.setSpatialTapBinding(
+            "new.left.double",
+            for: .leftDouble
+        )
         sendIMU(
             to: tapSource,
             startTime: 1.5,
             duration: 2,
-            pulses: [(1.0, 0, 0, 0.08)]
+            pulses: [(1.8, 0, 0, 0.08)]
         )
         harness.drain()
 
         let actions = actionIntents(in: harness.collector.outputs)
         XCTAssertEqual(actions.count, 1)
-        XCTAssertEqual(actions.first?.0, "new.single.action")
+        XCTAssertEqual(actions.first?.0, "new.left.double")
         XCTAssertEqual(tapSource.startCount, 1)
         XCTAssertEqual(tapSource.stopCount, 0)
         harness.controller.stop()
@@ -278,10 +495,7 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         let factory = ScriptedSourceFactory(
             tapSources: [firstTapSource, secondTapSource]
         )
-        let configuration = RuntimeConfiguration(
-            tapBindings: TapBindings(single: "single.action"),
-            panelHintsEnabled: false
-        )
+        let configuration = RuntimeConfiguration(panelHintsEnabled: false)
         let harness = try makeHarness(factory: factory, configuration: configuration)
         harness.controller.start()
         harness.controller.start()
@@ -305,14 +519,16 @@ final class MactivateRuntimeControllerTests: XCTestCase {
     }
 
     func testSleepWakeRecreatesSourcesRejectsLateCallbacksAndIsolatesIDs() throws {
-        let firstTapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
-        let secondTapSource = ScriptedSensorSource(paths: [.spuAccelerometer])
+        let firstTapSource = ScriptedSensorSource(paths: dualIMUPaths)
+        let secondTapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(
             tapSources: [firstTapSource, secondTapSource]
         )
         let lifecycle = TestLifecycleMonitor()
         let configuration = RuntimeConfiguration(
-            tapBindings: TapBindings(single: "single.action"),
+            spatialTapBindings: SpatialTapBindings(
+                leftDouble: "left.double"
+            ),
             panelHintsEnabled: false
         )
         let harness = try makeHarness(
@@ -324,7 +540,10 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         sendIMU(
             to: firstTapSource,
             duration: 3.5,
-            pulses: [(1.0, 0, 0, 0.08)]
+            pulses: [
+                (1.0, 0, 0, 0.08),
+                (1.4, 0, 0, 0.08)
+            ]
         )
         harness.drain()
 
@@ -342,7 +561,10 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         sendIMU(
             to: secondTapSource,
             duration: 3.5,
-            pulses: [(1.0, 0, 0, 0.08)]
+            pulses: [
+                (1.0, 0, 0, 0.08),
+                (1.4, 0, 0, 0.08)
+            ]
         )
         harness.drain()
 
@@ -438,7 +660,9 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         configuration: RuntimeConfiguration? = nil,
         configurationStore: InMemoryRuntimeConfigurationStore? = nil,
         lifecycleMonitor: TestLifecycleMonitor = TestLifecycleMonitor(),
-        panelCalibration: AmbientLightDipCalibration = .mac14_2Experimental
+        panelCalibration: AmbientLightDipCalibration = .mac14_2Experimental,
+        tapCalibration: TapCalibration? = nil,
+        provideRegionProfile: Bool = true
     ) throws -> RuntimeHarness {
         let store = configurationStore ?? InMemoryRuntimeConfigurationStore(
             result: .loaded(configuration ?? .default)
@@ -451,6 +675,9 @@ final class MactivateRuntimeControllerTests: XCTestCase {
             sourceFactory: factory,
             configurationStore: store,
             lifecycleMonitor: lifecycleMonitor,
+            tapCalibration: tapCalibration ?? personalTapCalibration,
+            tapRegionCalibrationProfile:
+                provideRegionProfile ? regionProfile : nil,
             panelCalibration: panelCalibration,
             deliveryQueue: deliveryQueue
         ) { output in
@@ -467,7 +694,8 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         to source: ScriptedSensorSource,
         startTime: Double = 0,
         duration: Double,
-        pulses: [(Double, Double, Double, Double)]
+        pulses: [(Double, Double, Double, Double)],
+        gyroSide: TapRegionSide? = .left
     ) {
         let firstIndex = Int(startTime * rate)
         let endIndex = Int((startTime + duration) * rate)
@@ -484,6 +712,34 @@ final class MactivateRuntimeControllerTests: XCTestCase {
                     y += pulse.2 * decay
                     z += pulse.3 * decay
                 }
+            }
+            var gyroX = 0.0
+            for pulse in pulses {
+                let delta = time - pulse.0
+                if delta >= -0.02, delta < 0 {
+                    switch gyroSide {
+                    case .left: gyroX = -4
+                    case .right: gyroX = -1
+                    case nil: gyroX = -1
+                    }
+                } else if delta >= 0, delta <= 0.02 {
+                    switch gyroSide {
+                    case .left: gyroX = 1
+                    case .right: gyroX = 4
+                    case nil: gyroX = 1
+                    }
+                }
+            }
+            if source.paths.contains(.spuGyroscope) {
+                source.send(.sample(.imu(
+                    path: .spuGyroscope,
+                    sample: IMUSample(
+                        timestamp: time,
+                        x: gyroX,
+                        y: 0,
+                        z: 0
+                    )
+                )))
             }
             source.send(.sample(.imu(
                 path: .spuAccelerometer,
@@ -517,6 +773,13 @@ final class MactivateRuntimeControllerTests: XCTestCase {
                 return nil
             }
             return (id, trigger)
+        }
+    }
+
+    private func tapFeedback(in outputs: [RuntimeOutput]) -> [TapFeedback] {
+        outputs.compactMap {
+            guard case .tapFeedback(let feedback) = $0 else { return nil }
+            return feedback
         }
     }
 }

@@ -21,6 +21,7 @@ final class AppCoordinator {
     private var settingsWindowController: SettingsWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var started = false
+    private var suppressNextCalibrationTapIntent = false
 
     convenience init() throws {
         try self.init(runtime: RuntimeBridge())
@@ -47,8 +48,15 @@ final class AppCoordinator {
         state.configuration = runtime.currentConfiguration
         state.snapshot = runtime.currentSnapshot
         state.tapCalibrationProfile = runtime.currentTapCalibrationProfile
+        state.tapRegionCalibrationProfile =
+            runtime.currentTapRegionCalibrationProfile
+        state.tapCalibrationStoreWarning = runtime.tapCalibrationWarning
+        state.tapRegionCalibrationStoreWarning =
+            runtime.tapRegionCalibrationWarning
         state.launchAtLoginStatus = launchAtLogin.status
-        state.recentWarning = loadResult.warning ?? runtime.tapCalibrationWarning
+        state.recentWarning = loadResult.warning ??
+            runtime.tapCalibrationWarning ??
+            runtime.tapRegionCalibrationWarning
 
         let viewActions = AppViewActions(
             performAction: { [weak self] action in
@@ -130,7 +138,31 @@ final class AppCoordinator {
             }
         case .tapFeedback(let feedback):
             state.lastTapFeedback = feedback
-            if let target = state.tapCalibrationTarget,
+            if let target = state.tapRegionCalibrationTarget,
+               feedback.outcome != .candidate {
+                if isAcceptedForRegionCalibration(feedback.outcome) {
+                    if case .dispatched = feedback.outcome {
+                        suppressNextCalibrationTapIntent = true
+                    }
+                    do {
+                        try state.tapRegionCalibrationDraft.record(
+                            feedback,
+                            target: target
+                        )
+                        state.tapRegionCalibrationError = nil
+                        advanceRegionCalibration(after: target)
+                    } catch {
+                        state.tapRegionCalibrationError =
+                            String(describing: error)
+                    }
+                } else if case .rejected(let reason) = feedback.outcome {
+                    state.tapRegionCalibrationError =
+                        "Gesture rejected. \(reason.guidance)"
+                } else if case .spatialUnavailable(_, let reason) =
+                            feedback.outcome {
+                    state.tapRegionCalibrationError = reason.message
+                }
+            } else if let target = state.tapCalibrationTarget,
                feedback.memberCount == 1,
                feedback.outcome != .candidate {
                 state.tapCalibrationDraft.record(
@@ -140,10 +172,16 @@ final class AppCoordinator {
                 )
             }
         case .intent(.showPanel):
-            guard state.tapCalibrationTarget == nil else { break }
+            guard state.tapCalibrationTarget == nil,
+                  state.tapRegionCalibrationTarget == nil else { break }
             panelController.showPassiveHint()
         case .intent(.performAction(let identifier, let trigger)):
-            guard state.tapCalibrationTarget == nil else { break }
+            if suppressNextCalibrationTapIntent {
+                suppressNextCalibrationTapIntent = false
+                break
+            }
+            guard state.tapCalibrationTarget == nil,
+                  state.tapRegionCalibrationTarget == nil else { break }
             guard let action = state.action(for: identifier) else {
                 state.actionError = AppActionError.unknownAction.localizedDescription
                 return
@@ -183,8 +221,8 @@ final class AppCoordinator {
 
     private func makeSettingsActions() -> SettingsActions {
         SettingsActions(
-            setTapBinding: { [weak self] identifier, pattern in
-                self?.setTapBinding(identifier, pattern: pattern)
+            setSpatialTapBinding: { [weak self] identifier, gesture in
+                self?.setSpatialTapBinding(identifier, gesture: gesture)
             },
             setPanelHintsEnabled: { [weak self] enabled in
                 self?.setPanelHintsEnabled(enabled)
@@ -220,6 +258,18 @@ final class AppCoordinator {
             resetCalibration: { [weak self] in
                 self?.resetCalibration()
             },
+            beginRegionCalibration: { [weak self] in
+                self?.beginRegionCalibration()
+            },
+            stopRegionCalibration: { [weak self] in
+                self?.state.tapRegionCalibrationTarget = nil
+            },
+            saveRegionCalibration: { [weak self] in
+                self?.saveRegionCalibration()
+            },
+            resetRegionCalibration: { [weak self] in
+                self?.resetRegionCalibration()
+            },
             testAction: { [weak self] identifier in
                 guard let self, let action = self.state.action(for: identifier) else {
                     return
@@ -231,6 +281,7 @@ final class AppCoordinator {
     }
 
     private func beginCalibrationCapture(_ target: TapCalibrationTarget) {
+        state.tapRegionCalibrationTarget = nil
         state.tapCalibrationTarget = nil
         state.tapCalibrationDraft.reset(
             side: target.side,
@@ -243,11 +294,13 @@ final class AppCoordinator {
 
     private func saveCalibration() {
         state.tapCalibrationTarget = nil
+        state.tapRegionCalibrationTarget = nil
         do {
             let profile = try state.tapCalibrationDraft.buildProfile()
             try runtime.applyTapCalibration(profile)
             state.tapCalibrationProfile = profile
             state.tapCalibrationError = nil
+            clearTapCalibrationStoreWarning()
         } catch {
             state.tapCalibrationError = String(describing: error)
         }
@@ -255,13 +308,102 @@ final class AppCoordinator {
 
     private func resetCalibration() {
         do {
+            state.tapRegionCalibrationTarget = nil
             try runtime.resetTapCalibration()
             state.tapCalibrationDraft.reset()
             state.tapCalibrationTarget = nil
             state.tapCalibrationProfile = nil
             state.tapCalibrationError = nil
+            clearTapCalibrationStoreWarning()
         } catch {
             state.tapCalibrationError = error.localizedDescription
+        }
+    }
+
+    private func beginRegionCalibration() {
+        guard state.canCalibrateTapRegion else {
+            state.tapRegionCalibrationError =
+                "Complete tap-acceptance calibration and connect the gyroscope first."
+            return
+        }
+        state.tapCalibrationTarget = nil
+        state.tapRegionCalibrationDraft.reset()
+        state.tapRegionCalibrationError = nil
+        state.lastTapFeedback = nil
+        state.tapRegionCalibrationTarget =
+            TapRegionCalibrationTarget.ordered.first
+    }
+
+    private func advanceRegionCalibration(
+        after target: TapRegionCalibrationTarget
+    ) {
+        let required =
+            TapRegionCalibrationDraft.requiredGesturesPerTarget
+        guard state.tapRegionCalibrationDraft.sampleCount(target: target) >=
+                required else {
+            return
+        }
+        if let next = TapRegionCalibrationTarget.ordered.first(where: {
+            state.tapRegionCalibrationDraft.sampleCount(target: $0) < required
+        }) {
+            state.tapRegionCalibrationTarget = next
+        } else {
+            state.tapRegionCalibrationTarget = nil
+            saveRegionCalibration()
+        }
+    }
+
+    private func saveRegionCalibration() {
+        state.tapRegionCalibrationTarget = nil
+        do {
+            let result = try state.tapRegionCalibrationDraft.buildProfile()
+            try runtime.applyTapRegionCalibration(result.profile)
+            state.tapRegionCalibrationProfile = result.profile
+            state.tapRegionCalibrationError = nil
+            clearTapRegionCalibrationStoreWarning()
+        } catch {
+            state.tapRegionCalibrationError = String(describing: error)
+        }
+    }
+
+    private func resetRegionCalibration() {
+        do {
+            state.tapCalibrationTarget = nil
+            try runtime.resetTapRegionCalibration()
+            state.tapRegionCalibrationDraft.reset()
+            state.tapRegionCalibrationTarget = nil
+            state.tapRegionCalibrationProfile = nil
+            state.tapRegionCalibrationError = nil
+            clearTapRegionCalibrationStoreWarning()
+        } catch {
+            state.tapRegionCalibrationError = error.localizedDescription
+        }
+    }
+
+    private func clearTapCalibrationStoreWarning() {
+        if state.recentWarning == state.tapCalibrationStoreWarning {
+            state.recentWarning = nil
+        }
+        state.tapCalibrationStoreWarning = nil
+    }
+
+    private func clearTapRegionCalibrationStoreWarning() {
+        if state.recentWarning == state.tapRegionCalibrationStoreWarning {
+            state.recentWarning = nil
+        }
+        state.tapRegionCalibrationStoreWarning = nil
+    }
+
+    private func isAcceptedForRegionCalibration(
+        _ outcome: TapFeedbackOutcome
+    ) -> Bool {
+        switch outcome {
+        case .acceptedNonActionable, .acceptedUnmapped, .dispatched:
+            return true
+        case .spatialUnavailable(_, let reason):
+            return reason != .tapCalibrationRequired
+        case .candidate, .rejected, .duplicate:
+            return false
         }
     }
 
@@ -277,10 +419,12 @@ final class AppCoordinator {
         refreshStatusItem()
     }
 
-    func setTapBinding(_ identifier: ActionIdentifier?,
-                       pattern: TapPattern) {
+    func setSpatialTapBinding(
+        _ identifier: ActionIdentifier?,
+        gesture: PalmTapGesture
+    ) {
         do {
-            try runtime.setTapBinding(identifier, for: pattern)
+            try runtime.setSpatialTapBinding(identifier, for: gesture)
             state.configuration = runtime.currentConfiguration
             refreshStatusItem()
         } catch {
@@ -385,9 +529,9 @@ final class AppCoordinator {
         }
         guard savePreferences(updated) else { return }
 
-        for pattern in TapPattern.allCases
-        where state.configuration.tapBindings[pattern] == identifier {
-            setTapBinding(nil, pattern: pattern)
+        for gesture in PalmTapGesture.allCases
+        where state.configuration.spatialTapBindings[gesture] == identifier {
+            setSpatialTapBinding(nil, gesture: gesture)
         }
     }
 
