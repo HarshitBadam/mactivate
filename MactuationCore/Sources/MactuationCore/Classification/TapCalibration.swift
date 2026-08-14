@@ -103,4 +103,23 @@ public struct TapCalibration: Codable, Equatable, Sendable {
         firmTiers: [.left: FirmTier(amplitudeCutG: 0.25,
                                     lateralToPeakMaxMgSPerG: 5,
                                     decayMaxMs: 150)])
+
+    /// Production timing for calibrated spatial double/triple gestures.
+    ///
+    /// The qualified training and validation captures contained 120
+    /// inter-member gaps from 159–238 ms. A 300 ms boundary retains every
+    /// observed gesture with 62 ms of headroom while avoiding the historical
+    /// discovery rule's one-second post-gesture wait.
+    public static let mac14_2SpatialMultiTap = TapCalibration(
+        version: "mac14_2-20260814-spatial-multitap-1",
+        detrendWindowS: 0.5,
+        eventThresholdG: 0.04,
+        refractoryS: 0.15,
+        groupGapS: 0.30,
+        maxGroupMembers: 3,
+        impulseHalfWindowS: 0.025,
+        comfortLateralVetoMgS: 0.25,
+        firmTiers: [.left: FirmTier(amplitudeCutG: 0.25,
+                                    lateralToPeakMaxMgSPerG: 5,
+                                    decayMaxMs: 150)])
 }

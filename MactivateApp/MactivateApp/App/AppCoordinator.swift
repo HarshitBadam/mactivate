@@ -163,13 +163,23 @@ final class AppCoordinator {
                     state.tapRegionCalibrationError = reason.message
                 }
             } else if let target = state.tapCalibrationTarget,
-               feedback.memberCount == 1,
-               feedback.outcome != .candidate {
-                state.tapCalibrationDraft.record(
-                    feedback,
-                    side: target.side,
-                    intensity: target.intensity
-                )
+                      feedback.outcome != .candidate {
+                do {
+                    try state.tapCalibrationDraft.record(
+                        feedback,
+                        side: target.side,
+                        intensity: target.intensity
+                    )
+                    state.tapCalibrationError = nil
+                    if state.tapCalibrationDraft.sampleCount(
+                        side: target.side,
+                        intensity: target.intensity
+                    ) >= TapCalibrationDraft.requiredSamplesPerTarget {
+                        state.tapCalibrationTarget = nil
+                    }
+                } catch {
+                    state.tapCalibrationError = String(describing: error)
+                }
             }
         case .intent(.showPanel):
             guard state.tapCalibrationTarget == nil,

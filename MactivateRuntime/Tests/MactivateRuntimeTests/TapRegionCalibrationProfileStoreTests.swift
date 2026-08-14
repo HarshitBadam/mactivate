@@ -52,8 +52,10 @@ final class TapRegionCalibrationProfileStoreTests: XCTestCase {
             defaults: defaults,
             key: key
         )
-        var calibration = TapCalibration.mac14_2Discovery
-        calibration.version = "personal-region-store-independence"
+        var calibration = TapCalibration.mac14_2SpatialMultiTap
+        calibration.version =
+            "personal-spatial-region-store-independence"
+        calibration.firmTiers[.right] = calibration.firmTiers[.left]
         let summary = TapCalibrationSideSummary(
             comfortSampleCount: 5,
             firmSampleCount: 5,

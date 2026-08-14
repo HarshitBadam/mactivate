@@ -21,6 +21,7 @@ final class TapCalibrationProfileTests: XCTestCase {
             profile.calibration.firmTiers[.left]?.amplitudeCutG,
             profile.calibration.firmTiers[.right]?.amplitudeCutG
         )
+        XCTAssertEqual(profile.calibration.groupGapS, 0.30)
 
         let restored = try JSONDecoder().decode(
             TapCalibrationProfile.self,
@@ -44,6 +45,42 @@ final class TapCalibrationProfileTests: XCTestCase {
                 .insufficientSamples(side: .right, force: .firm)
             )
         }
+    }
+
+    func testRejectsComfortSamplesWithUnsafeImpulseDirection() {
+        XCTAssertThrowsError(try TapCalibrationProfileBuilder.build(
+            comfort: [
+                .left: features(peak: 0.08, z: -0.4),
+                .right: features(peak: 0.06, z: 0.3)
+            ],
+            firm: [
+                .left: features(peak: 0.30, z: -0.2),
+                .right: features(peak: 0.18, z: -0.1)
+            ]
+        )) { error in
+            XCTAssertEqual(
+                error as? TapCalibrationProfileError,
+                .inconsistentComfortDirection(side: .left)
+            )
+        }
+    }
+
+    func testAllowsOneDirectionOutlierInFiveComfortSamples() throws {
+        var leftComfort = features(peak: 0.08, z: 0.4)
+        leftComfort[0].zImpulseMgS = -0.1
+
+        let profile = try TapCalibrationProfileBuilder.build(
+            comfort: [
+                .left: leftComfort,
+                .right: features(peak: 0.06, z: 0.3)
+            ],
+            firm: [
+                .left: features(peak: 0.30, z: -0.2),
+                .right: features(peak: 0.18, z: -0.1)
+            ]
+        )
+
+        XCTAssertTrue(profile.isValid)
     }
 
     private func features(

@@ -287,6 +287,44 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertEqual(coordinator.state.recentWarning, "rejected")
     }
 
+    func testTapCalibrationRetriesRejectedSamplesAndStopsAtFive() {
+        let runtime = FakeRuntime()
+        let coordinator = makeCoordinator(runtime: runtime)
+        let target = TapCalibrationTarget(side: .left, intensity: .comfort)
+        coordinator.state.tapCalibrationTarget = target
+
+        runtime.outputHandler?(.tapFeedback(calibrationFeedback(
+            outcome: .rejected(.comfortZImpulse),
+            zImpulseMgS: -0.2
+        )))
+
+        XCTAssertEqual(
+            coordinator.state.tapCalibrationDraft.sampleCount(
+                side: .left,
+                intensity: .comfort
+            ),
+            0
+        )
+        XCTAssertNotNil(coordinator.state.tapCalibrationError)
+
+        for _ in 0..<TapCalibrationDraft.requiredSamplesPerTarget {
+            runtime.outputHandler?(.tapFeedback(calibrationFeedback(
+                outcome: .acceptedNonActionable(.single),
+                zImpulseMgS: 0.2
+            )))
+        }
+
+        XCTAssertEqual(
+            coordinator.state.tapCalibrationDraft.sampleCount(
+                side: .left,
+                intensity: .comfort
+            ),
+            TapCalibrationDraft.requiredSamplesPerTarget
+        )
+        XCTAssertNil(coordinator.state.tapCalibrationTarget)
+        XCTAssertNil(coordinator.state.tapCalibrationError)
+    }
+
     func testRegionCalibrationAdvancesTargetsAndSavesQualifiedProfile() {
         let runtime = FakeRuntime()
         let coordinator = makeCoordinator(runtime: runtime)
@@ -505,6 +543,32 @@ final class RuntimeBridgeTests: XCTestCase {
             ),
             launchAtLogin: launchAtLogin,
             panelController: panelController
+        )
+    }
+
+    private func calibrationFeedback(
+        outcome: TapFeedbackOutcome,
+        zImpulseMgS: Double
+    ) -> TapFeedback {
+        let verdict: TapVerdict =
+            if case .rejected = outcome {
+                .rejected
+            } else {
+                .acceptedComfort
+            }
+        return TapFeedback(
+            outcome: outcome,
+            acceptanceVerdict: verdict,
+            memberCount: 1,
+            features: TapEventFeatures(
+                time: 1,
+                peakG: 0.1,
+                decayMs: 20,
+                zImpulseMgS: zImpulseMgS,
+                lateralImpulseMgS: 0.1
+            ),
+            sensorTimestamp: 1,
+            resolutionLatencyS: 0.6
         )
     }
 }

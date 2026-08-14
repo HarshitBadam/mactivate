@@ -47,6 +47,8 @@ Frozen transfer to the independently repositioned validation capture:
 
 The accepted production strategy is median member aggregation. It uses all resolved members, transferred perfectly in this pair, and avoided the validation coverage loss observed with voting.
 
+Across both captures, the 80 gestures contained 120 inter-member gaps. They ranged from 159.093 ms to 237.979 ms; the validation maximum was 237.979 ms. Calibrated spatial profiles therefore use a 300 ms grouping boundary, retaining 62 ms of headroom over every qualified gesture while removing 700 ms from the historical discovery classifier's post-gesture wait.
+
 ## Verdict and scope
 
 The distinct hypothesis is validated on this machine and user: natural double/triple motion contains a stable left/right signal in median `gyro_x_peak_balance_deg_s`. This does not reverse the 2026-07-24 result that accelerometer-only, per-tap X impulse was insufficient; the studies test different sensors and gesture units.

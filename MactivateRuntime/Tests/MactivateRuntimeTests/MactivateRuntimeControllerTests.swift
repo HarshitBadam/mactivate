@@ -82,7 +82,8 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         ])
         XCTAssertEqual(Set(actions.map(\.1.eventID)).count, 4)
         XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
-            $0.outcome == .acceptedNonActionable(.single)
+            $0.outcome == .acceptedNonActionable(.single) &&
+                $0.acceptanceVerdict == .acceptedComfort
         })
 
         harness.controller.stop()

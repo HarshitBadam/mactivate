@@ -452,6 +452,7 @@ public final class MactivateRuntimeController {
                 outcome: .rejected(
                     group.rejectionReason ?? .comfortZImpulse
                 ),
+                acceptanceVerdict: group.verdict,
                 memberCount: group.members.count,
                 features: firstMember,
                 sensorTimestamp: firstMember.time,
@@ -472,6 +473,7 @@ public final class MactivateRuntimeController {
         guard pattern != .single else {
             emit(.tapFeedback(TapFeedback(
                 outcome: .acceptedNonActionable(.single),
+                acceptanceVerdict: group.verdict,
                 memberCount: group.members.count,
                 features: firstMember,
                 sensorTimestamp: firstMember.time,

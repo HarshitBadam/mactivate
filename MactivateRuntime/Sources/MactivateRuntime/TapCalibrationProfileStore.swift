@@ -40,6 +40,12 @@ public final class UserDefaultsTapCalibrationProfileStore:
                 TapCalibrationProfile.self,
                 from: data
             )
+            guard profile.schemaVersion ==
+                    TapCalibrationProfile.currentSchemaVersion else {
+                return .invalid(
+                    "Tap calibration must be repeated after this update."
+                )
+            }
             guard profile.isValid else {
                 return .invalid("The saved palm-tap calibration is invalid.")
             }

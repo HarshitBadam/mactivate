@@ -68,7 +68,8 @@ final class AppState: ObservableObject {
                 side: target.side,
                 intensity: target.intensity
             )
-            return "Capturing \(target.side.rawValue) \(target.intensity.rawValue) taps · \(count)/5 minimum"
+            return "Capturing \(target.side.rawValue) " +
+                "\(target.intensity.rawValue) taps · \(count)/5 valid"
         }
         guard let profile = tapCalibrationProfile else {
             return "Calibration needed"

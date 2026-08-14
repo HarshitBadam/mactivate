@@ -28,7 +28,7 @@ public struct TapCalibrationSideSummary: Codable, Equatable, Sendable {
 }
 
 public struct TapCalibrationProfile: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion: Int
     public var identifier: UUID
@@ -52,7 +52,37 @@ public struct TapCalibrationProfile: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         schemaVersion == Self.currentSchemaVersion &&
-            calibration.version.hasPrefix("personal-") &&
+            calibration.version.hasPrefix("personal-spatial-") &&
+            calibration.detrendWindowS ==
+                TapCalibration.mac14_2SpatialMultiTap.detrendWindowS &&
+            calibration.refractoryS ==
+                TapCalibration.mac14_2SpatialMultiTap.refractoryS &&
+            calibration.groupGapS ==
+                TapCalibration.mac14_2SpatialMultiTap.groupGapS &&
+            calibration.maxGroupMembers ==
+                TapCalibration.mac14_2SpatialMultiTap.maxGroupMembers &&
+            calibration.impulseHalfWindowS ==
+                TapCalibration.mac14_2SpatialMultiTap.impulseHalfWindowS &&
+            calibration.comfortLateralVetoMgS ==
+                TapCalibration.mac14_2SpatialMultiTap.comfortLateralVetoMgS &&
+            calibration.eventThresholdG.isFinite &&
+            calibration.eventThresholdG >= 0.02 &&
+            calibration.eventThresholdG <=
+                TapCalibration.mac14_2SpatialMultiTap.eventThresholdG &&
+            Set(calibration.firmTiers.keys) == Set(PalmSide.allCases) &&
+            calibration.firmTiers.values.allSatisfy {
+                $0.amplitudeCutG.isFinite &&
+                    $0.amplitudeCutG >= 0.08 &&
+                    $0.amplitudeCutG <=
+                        TapCalibration.mac14_2SpatialMultiTap
+                            .firmTiers[.left]!.amplitudeCutG &&
+                    $0.lateralToPeakMaxMgSPerG ==
+                        TapCalibration.mac14_2SpatialMultiTap
+                            .firmTiers[.left]!.lateralToPeakMaxMgSPerG &&
+                    $0.decayMaxMs ==
+                        TapCalibration.mac14_2SpatialMultiTap
+                            .firmTiers[.left]!.decayMaxMs
+            } &&
             Set(sideSummaries.keys) == Set(PalmSide.allCases) &&
             sideSummaries.values.allSatisfy {
                 $0.comfortSampleCount >= 5 && $0.firmSampleCount >= 5
@@ -63,6 +93,7 @@ public struct TapCalibrationProfile: Codable, Equatable, Sendable {
 public enum TapCalibrationProfileError: Error, Equatable, CustomStringConvertible {
     case insufficientSamples(side: PalmSide, force: TapCalibrationForce)
     case invalidFeatures(side: PalmSide, force: TapCalibrationForce)
+    case inconsistentComfortDirection(side: PalmSide)
 
     public var description: String {
         switch self {
@@ -70,6 +101,8 @@ public enum TapCalibrationProfileError: Error, Equatable, CustomStringConvertibl
             return "Capture at least 5 \(force.rawValue) taps on the \(side.rawValue) palm rest."
         case .invalidFeatures(let side, let force):
             return "The \(side.rawValue) \(force.rawValue) samples were not consistent enough to calibrate."
+        case .inconsistentComfortDirection(let side):
+            return "Redo the \(side.rawValue) comfort taps. Tap straight down without sliding so at least four of five impulses match the safe palm-tap direction."
         }
     }
 }
@@ -105,36 +138,43 @@ public enum TapCalibrationProfileBuilder {
                     force: comfortValues.allSatisfy(validFeature) ? .firm : .comfort
                 )
             }
+            guard comfortValues.filter({ $0.zImpulseMgS > 0 }).count * 5 >=
+                    comfortValues.count * 4 else {
+                throw TapCalibrationProfileError.inconsistentComfortDirection(
+                    side: side
+                )
+            }
 
             allComfort.append(contentsOf: comfortValues)
             let firmPeaks = firmValues.map(\.peakG).sorted()
             let amplitudeCut = min(
-                TapCalibration.mac14_2Discovery.firmTiers[.left]!.amplitudeCutG,
+                TapCalibration.mac14_2SpatialMultiTap
+                    .firmTiers[.left]!.amplitudeCutG,
                 max(0.08, percentile(firmPeaks, fraction: 0.10) * 0.90)
             )
             firmTiers[side] = TapCalibration.FirmTier(
                 amplitudeCutG: amplitudeCut,
                 lateralToPeakMaxMgSPerG:
-                    TapCalibration.mac14_2Discovery.firmTiers[.left]!
+                    TapCalibration.mac14_2SpatialMultiTap.firmTiers[.left]!
                         .lateralToPeakMaxMgSPerG,
                 decayMaxMs:
-                    TapCalibration.mac14_2Discovery.firmTiers[.left]!.decayMaxMs
+                    TapCalibration.mac14_2SpatialMultiTap.firmTiers[.left]!
+                        .decayMaxMs
             )
             summaries[side] = TapCalibrationSideSummary(
                 comfortSampleCount: comfortValues.count,
                 firmSampleCount: firmValues.count,
                 comfortPeakMedianG: median(comfortValues.map(\.peakG)),
                 firmPeakMedianG: median(firmValues.map(\.peakG)),
-                zImpulseMedianMgS: median(
-                    (comfortValues + firmValues).map(\.zImpulseMgS)
-                )
+                zImpulseMedianMgS: median(comfortValues.map(\.zImpulseMgS))
             )
         }
 
         let weakestComfortPeak = allComfort.map(\.peakG).min() ??
-            TapCalibration.mac14_2Discovery.eventThresholdG
-        var calibration = TapCalibration.mac14_2Discovery
-        calibration.version = "personal-\(UUID().uuidString.lowercased())"
+            TapCalibration.mac14_2SpatialMultiTap.eventThresholdG
+        var calibration = TapCalibration.mac14_2SpatialMultiTap
+        calibration.version =
+            "personal-spatial-\(UUID().uuidString.lowercased())"
         calibration.eventThresholdG = min(
             calibration.eventThresholdG,
             max(0.02, weakestComfortPeak * 0.55)

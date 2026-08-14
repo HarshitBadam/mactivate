@@ -242,6 +242,7 @@ public enum TapFeedbackOutcome: Equatable, Sendable {
 
 public struct TapFeedback: Equatable, Sendable {
     public let outcome: TapFeedbackOutcome
+    public let acceptanceVerdict: TapVerdict?
     public let memberCount: Int
     public let features: TapEventFeatures
     public let sensorTimestamp: SensorTimestamp
@@ -254,6 +255,7 @@ public struct TapFeedback: Equatable, Sendable {
 
     public init(
         outcome: TapFeedbackOutcome,
+        acceptanceVerdict: TapVerdict? = nil,
         memberCount: Int,
         features: TapEventFeatures,
         sensorTimestamp: SensorTimestamp,
@@ -265,6 +267,7 @@ public struct TapFeedback: Equatable, Sendable {
         regionReason: TapRegionResolutionReason? = nil
     ) {
         self.outcome = outcome
+        self.acceptanceVerdict = acceptanceVerdict
         self.memberCount = memberCount
         self.features = features
         self.sensorTimestamp = sensorTimestamp
@@ -314,7 +317,30 @@ public struct TapCalibrationTarget: Hashable, Sendable {
     }
 }
 
+public enum TapCalibrationRecordError: Error, Equatable,
+    CustomStringConvertible {
+    case wrongTapCount(detected: Int)
+    case rejected(TapRejectionReason)
+    case wrongIntensity(expected: TapCalibrationIntensity)
+    case invalidOutcome
+
+    public var description: String {
+        switch self {
+        case .wrongTapCount(let detected):
+            return "Not recorded: perform one tap, not \(detected)."
+        case .rejected(let reason):
+            return "Not recorded. \(reason.guidance)"
+        case .wrongIntensity(let expected):
+            return "Not recorded: use a clearly \(expected.rawValue) tap."
+        case .invalidOutcome:
+            return "Not recorded: the tap did not produce a complete decision."
+        }
+    }
+}
+
 public struct TapCalibrationDraft: Equatable, Sendable {
+    public static let requiredSamplesPerTarget = 5
+
     private var comfort: [PalmSide: [TapEventFeatures]] = [:]
     private var firm: [PalmSide: [TapEventFeatures]] = [:]
 
@@ -324,7 +350,50 @@ public struct TapCalibrationDraft: Equatable, Sendable {
         _ feedback: TapFeedback,
         side: TapCalibrationSide,
         intensity: TapCalibrationIntensity
-    ) {
+    ) throws {
+        guard feedback.memberCount == 1 else {
+            throw TapCalibrationRecordError.wrongTapCount(
+                detected: feedback.memberCount
+            )
+        }
+        switch intensity {
+        case .comfort:
+            guard feedback.outcome == .acceptedNonActionable(.single) else {
+                if case .rejected(let reason) = feedback.outcome {
+                    throw TapCalibrationRecordError.rejected(reason)
+                }
+                throw TapCalibrationRecordError.invalidOutcome
+            }
+            guard feedback.acceptanceVerdict == .acceptedComfort,
+                  feedback.features.zImpulseMgS > 0 else {
+                throw TapCalibrationRecordError.wrongIntensity(
+                    expected: .comfort
+                )
+            }
+        case .firm:
+            switch feedback.outcome {
+            case .acceptedNonActionable(.single):
+                guard let verdict = feedback.acceptanceVerdict else {
+                    throw TapCalibrationRecordError.invalidOutcome
+                }
+                switch verdict {
+                case .acceptedComfort, .acceptedFirm:
+                    break
+                case .rejected:
+                    throw TapCalibrationRecordError.invalidOutcome
+                }
+            case .rejected(.comfortZImpulse):
+                break
+            case .rejected(let reason):
+                throw TapCalibrationRecordError.rejected(reason)
+            default:
+                throw TapCalibrationRecordError.invalidOutcome
+            }
+        }
+        guard sampleCount(side: side, intensity: intensity) <
+                Self.requiredSamplesPerTarget else {
+            return
+        }
         switch intensity {
         case .comfort:
             comfort[side.coreValue, default: []].append(feedback.features)

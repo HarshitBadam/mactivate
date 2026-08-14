@@ -49,9 +49,31 @@ final class TapCalibrationProfileStoreTests: XCTestCase {
         XCTAssertFalse(profile.isValid)
     }
 
+    func testLegacyProfileRequestsRecalibrationWithoutBeingOverwritten()
+        throws {
+        let suite = "TapCalibrationProfileStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        var profile = validProfile()
+        profile.schemaVersion = 1
+        let data = try JSONEncoder().encode(profile)
+        defaults.set(data, forKey: "calibration")
+        let store = UserDefaultsTapCalibrationProfileStore(
+            defaults: defaults,
+            key: "calibration"
+        )
+
+        XCTAssertEqual(
+            store.load(),
+            .invalid("Tap calibration must be repeated after this update.")
+        )
+        XCTAssertEqual(defaults.data(forKey: "calibration"), data)
+    }
+
     private func validProfile() -> TapCalibrationProfile {
-        var calibration = TapCalibration.mac14_2Discovery
-        calibration.version = "personal-store-test"
+        var calibration = TapCalibration.mac14_2SpatialMultiTap
+        calibration.version = "personal-spatial-store-test"
+        calibration.firmTiers[.right] = calibration.firmTiers[.left]
         return TapCalibrationProfile(
             calibration: calibration,
             sideSummaries: [

@@ -492,9 +492,9 @@ private struct CalibrationView: View {
         GroupBox("Step 1 · Calibrate tap acceptance") {
             VStack(alignment: .leading, spacing: 12) {
                 Text(
-                    "Keep the Mac on a stable surface. Capture five single taps " +
-                    "for each side and force so intended taps can be separated " +
-                    "from typing and bumps."
+                    "Keep the Mac on a stable surface. Capture five valid single " +
+                    "taps for each side and force. Rejected bumps or inconsistent " +
+                    "impulses are explained and do not count."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -544,14 +544,26 @@ private struct CalibrationView: View {
         )
         let isActive = state.tapCalibrationTarget == target
         return HStack {
-            Image(systemName: count >= 5 ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(count >= 5 ? .green : .secondary)
+            Image(
+                systemName: count >= TapCalibrationDraft.requiredSamplesPerTarget
+                    ? "checkmark.circle.fill" : "circle"
+            )
+            .foregroundStyle(
+                count >= TapCalibrationDraft.requiredSamplesPerTarget
+                    ? .green : .secondary
+            )
             Text("\(target.side.rawValue.capitalized) · \(target.intensity.rawValue.capitalized)")
             Spacer()
-            Text("\(count)/5")
+            Text(
+                "\(count)/\(TapCalibrationDraft.requiredSamplesPerTarget)"
+            )
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-            Button(isActive ? "Capturing…" : count >= 5 ? "Redo" : "Capture") {
+            Button(
+                isActive ? "Capturing…" :
+                    count >= TapCalibrationDraft.requiredSamplesPerTarget
+                        ? "Redo" : "Capture"
+            ) {
                 actions.beginCalibrationCapture(target)
             }
             .disabled(isActive)
@@ -563,7 +575,7 @@ private struct CalibrationView: View {
             state.tapCalibrationDraft.sampleCount(
                 side: $0.side,
                 intensity: $0.intensity
-            ) >= 5
+            ) >= TapCalibrationDraft.requiredSamplesPerTarget
         }
     }
 }
