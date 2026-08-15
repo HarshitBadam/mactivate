@@ -28,6 +28,8 @@
 		010000000000000000000202 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0F0000000000000000000004 /* DynamicNotchKit */; };
 		010000000000000000000300 /* AppCoordinator+Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000300 /* AppCoordinator+Calibration.swift */; };
 		010000000000000000000301 /* AppCoordinator+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000301 /* AppCoordinator+Actions.swift */; };
+		0100000000000000000003F3 /* HardwareModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0200000000000000000003F3 /* HardwareModel.swift */; };
+		0100000000000000000003F4 /* AppState+Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0200000000000000000003F4 /* AppState+Status.swift */; };
 		010000000000000000000302 /* NotchSurfaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000302 /* NotchSurfaceController.swift */; };
 		010000000000000000000303 /* GeneralSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000303 /* GeneralSettingsPane.swift */; };
 		010000000000000000000304 /* DiagnosticsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000304 /* DiagnosticsPane.swift */; };
@@ -41,6 +43,9 @@
 		01000000000000000000030C /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030C /* OnboardingView.swift */; };
 		01000000000000000000030D /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030D /* SettingsWindowController.swift */; };
 		01000000000000000000030E /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030E /* OnboardingWindowController.swift */; };
+		0100000000000000000003F0 /* WorkspaceOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0200000000000000000003F0 /* WorkspaceOpener.swift */; };
+		0100000000000000000003F1 /* ShortcutRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0200000000000000000003F1 /* ShortcutRunner.swift */; };
+		0100000000000000000003F2 /* TapAcceptanceCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0200000000000000000003F2 /* TapAcceptanceCalibrationView.swift */; };
 		010000000000000000000500 /* RuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000500 /* RuntimeLifecycleTests.swift */; };
 		010000000000000000000501 /* PanelIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000501 /* PanelIntentTests.swift */; };
 		010000000000000000000502 /* SpatialTapBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000502 /* SpatialTapBindingTests.swift */; };
@@ -84,6 +89,8 @@
 		020000000000000000000202 /* MactivateAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MactivateAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		020000000000000000000300 /* AppCoordinator+Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppCoordinator+Calibration.swift"; sourceTree = "<group>"; };
 		020000000000000000000301 /* AppCoordinator+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppCoordinator+Actions.swift"; sourceTree = "<group>"; };
+		0200000000000000000003F3 /* HardwareModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareModel.swift; sourceTree = "<group>"; };
+		0200000000000000000003F4 /* AppState+Status.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Status.swift"; sourceTree = "<group>"; };
 		020000000000000000000302 /* NotchSurfaceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchSurfaceController.swift; sourceTree = "<group>"; };
 		020000000000000000000303 /* GeneralSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsPane.swift; sourceTree = "<group>"; };
 		020000000000000000000304 /* DiagnosticsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsPane.swift; sourceTree = "<group>"; };
@@ -97,6 +104,9 @@
 		02000000000000000000030C /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		02000000000000000000030D /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		02000000000000000000030E /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
+		0200000000000000000003F0 /* WorkspaceOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceOpener.swift; sourceTree = "<group>"; };
+		0200000000000000000003F1 /* ShortcutRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRunner.swift; sourceTree = "<group>"; };
+		0200000000000000000003F2 /* TapAcceptanceCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapAcceptanceCalibrationView.swift; sourceTree = "<group>"; };
 		020000000000000000000500 /* RuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLifecycleTests.swift; sourceTree = "<group>"; };
 		020000000000000000000501 /* PanelIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelIntentTests.swift; sourceTree = "<group>"; };
 		020000000000000000000502 /* SpatialTapBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTapBindingTests.swift; sourceTree = "<group>"; };
@@ -160,6 +170,8 @@
 				020000000000000000000300 /* AppCoordinator+Calibration.swift */,
 				020000000000000000000301 /* AppCoordinator+Actions.swift */,
 				020000000000000000000003 /* AppState.swift */,
+				0200000000000000000003F4 /* AppState+Status.swift */,
+				0200000000000000000003F3 /* HardwareModel.swift */,
 				020000000000000000000004 /* RuntimeBridge.swift */,
 			);
 			path = App;
@@ -170,6 +182,8 @@
 			children = (
 				020000000000000000000005 /* AppAction.swift */,
 				020000000000000000000006 /* ActionExecutor.swift */,
+				0200000000000000000003F0 /* WorkspaceOpener.swift */,
+				0200000000000000000003F1 /* ShortcutRunner.swift */,
 			);
 			path = Actions;
 			sourceTree = "<group>";
@@ -247,6 +261,7 @@
 			isa = PBXGroup;
 			children = (
 				02000000000000000000030A /* CalibrationWorkspace.swift */,
+				0200000000000000000003F2 /* TapAcceptanceCalibrationView.swift */,
 				02000000000000000000030B /* RegionCalibrationView.swift */,
 			);
 			path = Calibration;
@@ -425,6 +440,8 @@
 				010000000000000000000300 /* AppCoordinator+Calibration.swift in Sources */,
 				010000000000000000000301 /* AppCoordinator+Actions.swift in Sources */,
 				010000000000000000000003 /* AppState.swift in Sources */,
+				0100000000000000000003F4 /* AppState+Status.swift in Sources */,
+				0100000000000000000003F3 /* HardwareModel.swift in Sources */,
 				010000000000000000000004 /* RuntimeBridge.swift in Sources */,
 				010000000000000000000005 /* AppAction.swift in Sources */,
 				010000000000000000000006 /* ActionExecutor.swift in Sources */,
@@ -448,6 +465,9 @@
 				01000000000000000000030C /* OnboardingView.swift in Sources */,
 				01000000000000000000030D /* SettingsWindowController.swift in Sources */,
 				01000000000000000000030E /* OnboardingWindowController.swift in Sources */,
+				0100000000000000000003F0 /* WorkspaceOpener.swift in Sources */,
+				0100000000000000000003F1 /* ShortcutRunner.swift in Sources */,
+				0100000000000000000003F2 /* TapAcceptanceCalibrationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
