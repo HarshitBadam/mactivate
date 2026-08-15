@@ -1,0 +1,674 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		010000000000000000000001 /* MactivateApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000001 /* MactivateApplication.swift */; };
+		010000000000000000000002 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000002 /* AppCoordinator.swift */; };
+		010000000000000000000003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000003 /* AppState.swift */; };
+		010000000000000000000004 /* RuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000004 /* RuntimeBridge.swift */; };
+		010000000000000000000005 /* AppAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000005 /* AppAction.swift */; };
+		010000000000000000000006 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000006 /* ActionExecutor.swift */; };
+		010000000000000000000007 /* AppPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000007 /* AppPreferencesStore.swift */; };
+		010000000000000000000008 /* LaunchAtLoginManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000008 /* LaunchAtLoginManager.swift */; };
+		010000000000000000000009 /* NotchGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000009 /* NotchGeometry.swift */; };
+		01000000000000000000000A /* PanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000A /* PanelController.swift */; };
+		01000000000000000000000B /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000B /* PanelContentView.swift */; };
+		01000000000000000000000C /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000C /* StatusItemController.swift */; };
+		01000000000000000000000D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000D /* SettingsView.swift */; };
+		01000000000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000E /* Assets.xcassets */; };
+		010000000000000000000101 /* NotchGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000101 /* NotchGeometryTests.swift */; };
+		010000000000000000000102 /* AppPreferencesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000102 /* AppPreferencesStoreTests.swift */; };
+		010000000000000000000103 /* ActionExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000103 /* ActionExecutorTests.swift */; };
+		010000000000000000000201 /* MactivateRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 0F0000000000000000000002 /* MactivateRuntime */; };
+		010000000000000000000202 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0F0000000000000000000004 /* DynamicNotchKit */; };
+		010000000000000000000300 /* AppCoordinator+Calibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000300 /* AppCoordinator+Calibration.swift */; };
+		010000000000000000000301 /* AppCoordinator+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000301 /* AppCoordinator+Actions.swift */; };
+		010000000000000000000302 /* NotchSurfaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000302 /* NotchSurfaceController.swift */; };
+		010000000000000000000303 /* GeneralSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000303 /* GeneralSettingsPane.swift */; };
+		010000000000000000000304 /* DiagnosticsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000304 /* DiagnosticsPane.swift */; };
+		010000000000000000000305 /* SettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000305 /* SettingsActions.swift */; };
+		010000000000000000000306 /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000306 /* SettingsComponents.swift */; };
+		010000000000000000000307 /* ActionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000307 /* ActionPicker.swift */; };
+		010000000000000000000308 /* ActionLibrarySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000308 /* ActionLibrarySheet.swift */; };
+		010000000000000000000309 /* AddActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000309 /* AddActionSheet.swift */; };
+		01000000000000000000030A /* CalibrationWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030A /* CalibrationWorkspace.swift */; };
+		01000000000000000000030B /* RegionCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030B /* RegionCalibrationView.swift */; };
+		01000000000000000000030C /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030C /* OnboardingView.swift */; };
+		01000000000000000000030D /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030D /* SettingsWindowController.swift */; };
+		01000000000000000000030E /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000030E /* OnboardingWindowController.swift */; };
+		010000000000000000000500 /* RuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000500 /* RuntimeLifecycleTests.swift */; };
+		010000000000000000000501 /* PanelIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000501 /* PanelIntentTests.swift */; };
+		010000000000000000000502 /* SpatialTapBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000502 /* SpatialTapBindingTests.swift */; };
+		010000000000000000000503 /* CalibrationFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000503 /* CalibrationFlowTests.swift */; };
+		010000000000000000000504 /* ActionManagementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000504 /* ActionManagementTests.swift */; };
+		010000000000000000000505 /* LaunchAtLoginTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000505 /* LaunchAtLoginTests.swift */; };
+		010000000000000000000506 /* CoordinatorTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000506 /* CoordinatorTestSupport.swift */; };
+		010000000000000000000507 /* RuntimeTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000507 /* RuntimeTestDoubles.swift */; };
+		010000000000000000000508 /* FakeNotchSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000508 /* FakeNotchSurface.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		030000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 090000000000000000000001;
+			remoteInfo = MactivateApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		020000000000000000000001 /* MactivateApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MactivateApplication.swift; sourceTree = "<group>"; };
+		020000000000000000000002 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		020000000000000000000003 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		020000000000000000000004 /* RuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeBridge.swift; sourceTree = "<group>"; };
+		020000000000000000000005 /* AppAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAction.swift; sourceTree = "<group>"; };
+		020000000000000000000006 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
+		020000000000000000000007 /* AppPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesStore.swift; sourceTree = "<group>"; };
+		020000000000000000000008 /* LaunchAtLoginManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginManager.swift; sourceTree = "<group>"; };
+		020000000000000000000009 /* NotchGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchGeometry.swift; sourceTree = "<group>"; };
+		02000000000000000000000A /* PanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelController.swift; sourceTree = "<group>"; };
+		02000000000000000000000B /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelContentView.swift; sourceTree = "<group>"; };
+		02000000000000000000000C /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		02000000000000000000000D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		02000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		020000000000000000000101 /* NotchGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchGeometryTests.swift; sourceTree = "<group>"; };
+		020000000000000000000102 /* AppPreferencesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferencesStoreTests.swift; sourceTree = "<group>"; };
+		020000000000000000000103 /* ActionExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutorTests.swift; sourceTree = "<group>"; };
+		020000000000000000000201 /* Mactivate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mactivate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		020000000000000000000202 /* MactivateAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MactivateAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		020000000000000000000300 /* AppCoordinator+Calibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppCoordinator+Calibration.swift"; sourceTree = "<group>"; };
+		020000000000000000000301 /* AppCoordinator+Actions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppCoordinator+Actions.swift"; sourceTree = "<group>"; };
+		020000000000000000000302 /* NotchSurfaceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotchSurfaceController.swift; sourceTree = "<group>"; };
+		020000000000000000000303 /* GeneralSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsPane.swift; sourceTree = "<group>"; };
+		020000000000000000000304 /* DiagnosticsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsPane.swift; sourceTree = "<group>"; };
+		020000000000000000000305 /* SettingsActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsActions.swift; sourceTree = "<group>"; };
+		020000000000000000000306 /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
+		020000000000000000000307 /* ActionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionPicker.swift; sourceTree = "<group>"; };
+		020000000000000000000308 /* ActionLibrarySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionLibrarySheet.swift; sourceTree = "<group>"; };
+		020000000000000000000309 /* AddActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddActionSheet.swift; sourceTree = "<group>"; };
+		02000000000000000000030A /* CalibrationWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationWorkspace.swift; sourceTree = "<group>"; };
+		02000000000000000000030B /* RegionCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionCalibrationView.swift; sourceTree = "<group>"; };
+		02000000000000000000030C /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		02000000000000000000030D /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		02000000000000000000030E /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
+		020000000000000000000500 /* RuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLifecycleTests.swift; sourceTree = "<group>"; };
+		020000000000000000000501 /* PanelIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelIntentTests.swift; sourceTree = "<group>"; };
+		020000000000000000000502 /* SpatialTapBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTapBindingTests.swift; sourceTree = "<group>"; };
+		020000000000000000000503 /* CalibrationFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationFlowTests.swift; sourceTree = "<group>"; };
+		020000000000000000000504 /* ActionManagementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionManagementTests.swift; sourceTree = "<group>"; };
+		020000000000000000000505 /* LaunchAtLoginTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginTests.swift; sourceTree = "<group>"; };
+		020000000000000000000506 /* CoordinatorTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorTestSupport.swift; sourceTree = "<group>"; };
+		020000000000000000000507 /* RuntimeTestDoubles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeTestDoubles.swift; sourceTree = "<group>"; };
+		020000000000000000000508 /* FakeNotchSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeNotchSurface.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		040000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				010000000000000000000201 /* MactivateRuntime in Frameworks */,
+				010000000000000000000202 /* DynamicNotchKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		040000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		050000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				050000000000000000000010 /* MactivateApp */,
+				050000000000000000000020 /* MactivateAppTests */,
+				050000000000000000000030 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		050000000000000000000010 /* MactivateApp */ = {
+			isa = PBXGroup;
+			children = (
+				050000000000000000000011 /* App */,
+				050000000000000000000012 /* Actions */,
+				050000000000000000000013 /* Lifecycle */,
+				050000000000000000000014 /* MenuBar */,
+				050000000000000000000015 /* Panel */,
+				050000000000000000000016 /* Preferences */,
+				050000000000000000000017 /* Settings */,
+				050000000000000000000018 /* Resources */,
+			);
+			path = MactivateApp;
+			sourceTree = "<group>";
+		};
+		050000000000000000000011 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000001 /* MactivateApplication.swift */,
+				020000000000000000000002 /* AppCoordinator.swift */,
+				020000000000000000000300 /* AppCoordinator+Calibration.swift */,
+				020000000000000000000301 /* AppCoordinator+Actions.swift */,
+				020000000000000000000003 /* AppState.swift */,
+				020000000000000000000004 /* RuntimeBridge.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		050000000000000000000012 /* Actions */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000005 /* AppAction.swift */,
+				020000000000000000000006 /* ActionExecutor.swift */,
+			);
+			path = Actions;
+			sourceTree = "<group>";
+		};
+		050000000000000000000013 /* Lifecycle */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000008 /* LaunchAtLoginManager.swift */,
+			);
+			path = Lifecycle;
+			sourceTree = "<group>";
+		};
+		050000000000000000000014 /* MenuBar */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000000C /* StatusItemController.swift */,
+			);
+			path = MenuBar;
+			sourceTree = "<group>";
+		};
+		050000000000000000000015 /* Panel */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000009 /* NotchGeometry.swift */,
+				02000000000000000000000A /* PanelController.swift */,
+				020000000000000000000302 /* NotchSurfaceController.swift */,
+				02000000000000000000000B /* PanelContentView.swift */,
+			);
+			path = Panel;
+			sourceTree = "<group>";
+		};
+		050000000000000000000016 /* Preferences */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000007 /* AppPreferencesStore.swift */,
+			);
+			path = Preferences;
+			sourceTree = "<group>";
+		};
+		050000000000000000000017 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000000D /* SettingsView.swift */,
+				020000000000000000000303 /* GeneralSettingsPane.swift */,
+				020000000000000000000304 /* DiagnosticsPane.swift */,
+				050000000000000000000100 /* Shared */,
+				050000000000000000000101 /* ActionSheets */,
+				050000000000000000000102 /* Calibration */,
+				050000000000000000000103 /* Onboarding */,
+				050000000000000000000104 /* WindowControllers */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		050000000000000000000100 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000305 /* SettingsActions.swift */,
+				020000000000000000000306 /* SettingsComponents.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		050000000000000000000101 /* ActionSheets */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000307 /* ActionPicker.swift */,
+				020000000000000000000308 /* ActionLibrarySheet.swift */,
+				020000000000000000000309 /* AddActionSheet.swift */,
+			);
+			path = ActionSheets;
+			sourceTree = "<group>";
+		};
+		050000000000000000000102 /* Calibration */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000030A /* CalibrationWorkspace.swift */,
+				02000000000000000000030B /* RegionCalibrationView.swift */,
+			);
+			path = Calibration;
+			sourceTree = "<group>";
+		};
+		050000000000000000000103 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000030C /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		050000000000000000000104 /* WindowControllers */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000030D /* SettingsWindowController.swift */,
+				02000000000000000000030E /* OnboardingWindowController.swift */,
+			);
+			path = WindowControllers;
+			sourceTree = "<group>";
+		};
+		050000000000000000000018 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				02000000000000000000000E /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		050000000000000000000020 /* MactivateAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000101 /* NotchGeometryTests.swift */,
+				020000000000000000000102 /* AppPreferencesStoreTests.swift */,
+				020000000000000000000103 /* ActionExecutorTests.swift */,
+				020000000000000000000500 /* RuntimeLifecycleTests.swift */,
+				020000000000000000000501 /* PanelIntentTests.swift */,
+				020000000000000000000502 /* SpatialTapBindingTests.swift */,
+				020000000000000000000503 /* CalibrationFlowTests.swift */,
+				020000000000000000000504 /* ActionManagementTests.swift */,
+				020000000000000000000505 /* LaunchAtLoginTests.swift */,
+				050000000000000000000105 /* Support */,
+			);
+			path = MactivateAppTests;
+			sourceTree = "<group>";
+		};
+		050000000000000000000105 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000506 /* CoordinatorTestSupport.swift */,
+				020000000000000000000507 /* RuntimeTestDoubles.swift */,
+				020000000000000000000508 /* FakeNotchSurface.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		050000000000000000000030 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000201 /* Mactivate.app */,
+				020000000000000000000202 /* MactivateAppTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		090000000000000000000001 /* MactivateApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0B0000000000000000000001 /* Build configuration list for PBXNativeTarget "MactivateApp" */;
+			buildPhases = (
+				080000000000000000000001 /* Sources */,
+				040000000000000000000001 /* Frameworks */,
+				070000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MactivateApp;
+			packageProductDependencies = (
+				0F0000000000000000000002 /* MactivateRuntime */,
+				0F0000000000000000000004 /* DynamicNotchKit */,
+			);
+			productName = Mactivate;
+			productReference = 020000000000000000000201 /* Mactivate.app */;
+			productType = "com.apple.product-type.application";
+		};
+		090000000000000000000002 /* MactivateAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0B0000000000000000000002 /* Build configuration list for PBXNativeTarget "MactivateAppTests" */;
+			buildPhases = (
+				080000000000000000000002 /* Sources */,
+				040000000000000000000002 /* Frameworks */,
+				070000000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0D0000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = MactivateAppTests;
+			productName = MactivateAppTests;
+			productReference = 020000000000000000000202 /* MactivateAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+				TargetAttributes = {
+					090000000000000000000001 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+					090000000000000000000002 = {
+						CreatedOnToolsVersion = 15.2;
+						TestTargetID = 090000000000000000000001;
+					};
+				};
+			};
+			buildConfigurationList = 0B0000000000000000000000 /* Build configuration list for PBXProject "MactivateApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 050000000000000000000001;
+			packageReferences = (
+				0F0000000000000000000001 /* XCLocalSwiftPackageReference "../packages/runtime" */,
+				0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */,
+			);
+			productRefGroup = 050000000000000000000030 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				090000000000000000000001 /* MactivateApp */,
+				090000000000000000000002 /* MactivateAppTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		070000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				01000000000000000000000E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		070000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		080000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				010000000000000000000001 /* MactivateApplication.swift in Sources */,
+				010000000000000000000002 /* AppCoordinator.swift in Sources */,
+				010000000000000000000300 /* AppCoordinator+Calibration.swift in Sources */,
+				010000000000000000000301 /* AppCoordinator+Actions.swift in Sources */,
+				010000000000000000000003 /* AppState.swift in Sources */,
+				010000000000000000000004 /* RuntimeBridge.swift in Sources */,
+				010000000000000000000005 /* AppAction.swift in Sources */,
+				010000000000000000000006 /* ActionExecutor.swift in Sources */,
+				010000000000000000000007 /* AppPreferencesStore.swift in Sources */,
+				010000000000000000000008 /* LaunchAtLoginManager.swift in Sources */,
+				010000000000000000000009 /* NotchGeometry.swift in Sources */,
+				01000000000000000000000A /* PanelController.swift in Sources */,
+				010000000000000000000302 /* NotchSurfaceController.swift in Sources */,
+				01000000000000000000000B /* PanelContentView.swift in Sources */,
+				01000000000000000000000C /* StatusItemController.swift in Sources */,
+				01000000000000000000000D /* SettingsView.swift in Sources */,
+				010000000000000000000303 /* GeneralSettingsPane.swift in Sources */,
+				010000000000000000000304 /* DiagnosticsPane.swift in Sources */,
+				010000000000000000000305 /* SettingsActions.swift in Sources */,
+				010000000000000000000306 /* SettingsComponents.swift in Sources */,
+				010000000000000000000307 /* ActionPicker.swift in Sources */,
+				010000000000000000000308 /* ActionLibrarySheet.swift in Sources */,
+				010000000000000000000309 /* AddActionSheet.swift in Sources */,
+				01000000000000000000030A /* CalibrationWorkspace.swift in Sources */,
+				01000000000000000000030B /* RegionCalibrationView.swift in Sources */,
+				01000000000000000000030C /* OnboardingView.swift in Sources */,
+				01000000000000000000030D /* SettingsWindowController.swift in Sources */,
+				01000000000000000000030E /* OnboardingWindowController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		080000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				010000000000000000000101 /* NotchGeometryTests.swift in Sources */,
+				010000000000000000000102 /* AppPreferencesStoreTests.swift in Sources */,
+				010000000000000000000103 /* ActionExecutorTests.swift in Sources */,
+				010000000000000000000500 /* RuntimeLifecycleTests.swift in Sources */,
+				010000000000000000000501 /* PanelIntentTests.swift in Sources */,
+				010000000000000000000502 /* SpatialTapBindingTests.swift in Sources */,
+				010000000000000000000503 /* CalibrationFlowTests.swift in Sources */,
+				010000000000000000000504 /* ActionManagementTests.swift in Sources */,
+				010000000000000000000505 /* LaunchAtLoginTests.swift in Sources */,
+				010000000000000000000506 /* CoordinatorTestSupport.swift in Sources */,
+				010000000000000000000507 /* RuntimeTestDoubles.swift in Sources */,
+				010000000000000000000508 /* FakeNotchSurface.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0D0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 090000000000000000000001 /* MactivateApp */;
+			targetProxy = 030000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0C0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		0C0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		0C0000000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Mactivate;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mactivate.app;
+				PRODUCT_MODULE_NAME = MactivateApp;
+				PRODUCT_NAME = Mactivate;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		0C0000000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Mactivate;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mactivate.app;
+				PRODUCT_MODULE_NAME = MactivateApp;
+				PRODUCT_NAME = Mactivate;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		0C0000000000000000000021 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mactivate.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mactivate.app/Contents/MacOS/Mactivate";
+			};
+			name = Debug;
+		};
+		0C0000000000000000000022 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mactivate.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mactivate.app/Contents/MacOS/Mactivate";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0B0000000000000000000000 /* Build configuration list for PBXProject "MactivateApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C0000000000000000000001 /* Debug */,
+				0C0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0B0000000000000000000001 /* Build configuration list for PBXNativeTarget "MactivateApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C0000000000000000000011 /* Debug */,
+				0C0000000000000000000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0B0000000000000000000002 /* Build configuration list for PBXNativeTarget "MactivateAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0C0000000000000000000021 /* Debug */,
+				0C0000000000000000000022 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0F0000000000000000000001 /* XCLocalSwiftPackageReference "../packages/runtime" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/runtime;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MrKai77/DynamicNotchKit";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0F0000000000000000000002 /* MactivateRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0F0000000000000000000001 /* XCLocalSwiftPackageReference "../packages/runtime" */;
+			productName = MactivateRuntime;
+		};
+		0F0000000000000000000004 /* DynamicNotchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0F0000000000000000000003 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */;
+			productName = DynamicNotchKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 0A0000000000000000000001 /* Project object */;
+}

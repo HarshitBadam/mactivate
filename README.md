@@ -33,15 +33,15 @@ Detailed measurements are in the [2026-07-24 discovery record](docs/probe-result
 
 ## Repository
 
-- `[MactuationCore](MactuationCore/)` — one Swift package containing the hardware-independent `MactuationCore` product and reusable macOS `MactuationHardware` product. Core owns models, source lifecycle events, capture/replay, deterministic classifiers, and committed regression fixtures; Hardware owns IOKit acquisition.
-- `[MactivateRuntime](MactivateRuntime/)` — product-specific, intent-only runtime composition, persisted tap bindings, partial feature state, deduplication, and sleep/wake lifecycle handling.
-- `[MactivateApp](MactivateApp/)` — AppKit/SwiftUI menu-bar app, notch/floating panel, settings and onboarding, safe action catalog, launch-at-login integration, and app-layer tests.
-- `[MactuationProbe](MactuationProbe/)` — thin macOS CLI for machine identification, hardware discovery, capture, raw ALS observation, live tap diagnostics, and panel-hint diagnostics.
-- `[scripts](scripts/)` — offline IMU analysis, rule scoring, and daemon-context diagnostics.
-- `[docs/research](docs/research/)` — prior art, sensor landscape, and recorded gesture experiments.
-- `[docs/probe-results](docs/probe-results/)` — measurements from physical hardware.
-
-
+- [`app/`](app/) — AppKit/SwiftUI menu-bar app, notch/floating panel, settings and onboarding, safe action catalog, launch-at-login integration, and app-layer tests.
+- [`packages/core/`](packages/core/) — one Swift package with four products: hardware-independent `MactuationCore`; reusable macOS `MactuationHardware`; and two non-shipping products used only by research/test code, `MactuationCapture` (on-disk session capture/replay format) and `MactuationTestSupport` (mock/replay sensor sources, deterministic digests). Core owns models, source lifecycle events, deterministic classifiers, the runtime-reachable region-probe qualification contract, and committed regression fixtures; Hardware owns IOKit acquisition.
+- [`packages/runtime/`](packages/runtime/) — product-specific, intent-only runtime composition, persisted tap bindings, partial feature state, deduplication, and sleep/wake lifecycle handling. Depends only on Core and Hardware.
+- [`research/analysis/`](research/analysis/) — `MactuationResearch`, the offline region-probe analyzer: threshold/linear model fitting, capture-to-observation extraction, and multi-tap analysis. Depends on `MactuationCore` and `MactuationCapture`; no production package depends on it.
+- [`research/probe/`](research/probe/) — thin macOS CLI for machine identification, hardware discovery, capture, raw ALS observation, live tap diagnostics, and panel-hint diagnostics.
+- [`tools/analysis/`](tools/analysis/) — offline IMU analysis and rule scoring.
+- [`tools/hardware/`](tools/hardware/) — daemon-context diagnostics.
+- [`tools/maintenance/`](tools/maintenance/) — repository layout, line-limit, fan-out, and module-boundary checks.
+- [`docs/`](docs/) — architecture, prior art, sensor landscape, recorded gesture experiments, and measured probe results.
 
 ## Practical quality bar
 
@@ -70,15 +70,15 @@ Commercial qualification, broad model support, perfect detection in every enviro
 - Camera or microphone fallback for the first version.
 - Universal Mac compatibility.
 
-
-
 ## Build and test
 
 ```bash
-swift test --package-path MactuationCore
-swift test --package-path MactivateRuntime
-swift build --package-path MactuationProbe
-xcodebuild -project MactivateApp/MactivateApp.xcodeproj \
+python3 tools/maintenance/check_repository.py
+swift test --package-path packages/core
+swift test --package-path packages/runtime
+swift test --package-path research/analysis
+swift build --package-path research/probe
+xcodebuild -project app/MactivateApp.xcodeproj \
   -scheme MactivateApp -destination 'platform=macOS' test
 ```
 
@@ -89,28 +89,23 @@ manual entry point.
 Probe commands:
 
 ```bash
-MactuationProbe/.build/debug/mactuation-probe identify
-MactuationProbe/.build/debug/mactuation-probe discover
-MactuationProbe/.build/debug/mactuation-probe als-watch --panel-hints
-MactuationProbe/.build/debug/mactuation-probe tap-watch --rate-hz 800
-MactuationProbe/.build/debug/mactuation-probe imu-capture --label test --rate-hz 800
-sudo MactuationProbe/.build/debug/mactuation-probe region-multitap-capture \
+research/probe/.build/debug/mactuation-probe identify
+research/probe/.build/debug/mactuation-probe discover
+research/probe/.build/debug/mactuation-probe als-watch --panel-hints
+research/probe/.build/debug/mactuation-probe tap-watch --rate-hz 800
+research/probe/.build/debug/mactuation-probe imu-capture --label test --rate-hz 800
+sudo research/probe/.build/debug/mactuation-probe region-multitap-capture \
   --count 10 --rate-hz 800 --seed 20260814
-MactuationProbe/.build/debug/mactuation-probe region-multitap-analyze \
+research/probe/.build/debug/mactuation-probe region-multitap-analyze \
   --training captures/20260814-030157-region-multitap-pilot \
   --validation captures/20260814-031042-region-multitap-pilot
 ```
 
-
-
 ## Next
 
-1. Implement the accepted spatial multi-tap production path: required per-user calibration, median gyro region classification, four side-specific bindings, and fail-closed unknown handling.
-2. Complete repeated daily-use qualification on Mac14,2 across bright/dim rooms, Spaces, fullscreen, external displays, and sleep/wake.
-3. Add a polished application icon and capture final README screenshots.
-4. Collect evidence on additional users and Mac models before claiming broader compatibility.
-
-
+1. Complete repeated daily-use qualification on Mac14,2 across bright/dim rooms, Spaces, fullscreen, external displays, and sleep/wake.
+2. Add a polished application icon and capture final README screenshots.
+3. Collect evidence on additional users and Mac models before claiming broader compatibility.
 
 ## Research
 
@@ -119,8 +114,6 @@ MactuationProbe/.build/debug/mactuation-probe region-multitap-analyze \
 - [Gesture experiments and verdicts](docs/research/gesture-hypotheses.md)
 - [Sensor landscape](docs/research/sensor-landscape.md)
 - [Prior art](docs/research/prior-art.md)
-
-
 
 ## License
 

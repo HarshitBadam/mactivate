@@ -22,13 +22,13 @@ The guided probe displayed one randomized side/pattern target at a time and wait
 Commands:
 
 ```bash
-sudo ./MactuationProbe/.build/debug/mactuation-probe \
+sudo ./research/probe/.build/debug/mactuation-probe \
   region-multitap-capture --count 10 --rate-hz 800 --seed 20260814
 
-sudo ./MactuationProbe/.build/debug/mactuation-probe \
+sudo ./research/probe/.build/debug/mactuation-probe \
   region-multitap-capture --count 10 --rate-hz 800 --seed 314159
 
-./MactuationProbe/.build/debug/mactuation-probe region-multitap-analyze \
+./research/probe/.build/debug/mactuation-probe region-multitap-analyze \
   --training captures/20260814-030157-region-multitap-pilot \
   --validation captures/20260814-031042-region-multitap-pilot
 ```

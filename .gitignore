@@ -1,6 +1,3 @@
-# ─────────────────────────────────────────────────────────────
-# macOS Finder / filesystem artifacts
-# ─────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -14,11 +11,6 @@
 .com.apple.timemachine.donotpresent
 Icon?
 
-# ─────────────────────────────────────────────────────────────
-# Xcode user-specific data (per-developer, never shared)
-# NOTE: the *.xcodeproj / *.xcworkspace bundles themselves are
-# source-controlled — only the per-user data inside them is ignored.
-# ─────────────────────────────────────────────────────────────
 xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
@@ -28,7 +20,6 @@ xcuserdata/
 *.perspectivev3
 *.pbxuser
 
-# Xcode build output
 DerivedData/
 build/
 *.moved-aside
@@ -37,24 +28,18 @@ build/
 *.dSYM.zip
 *.dSYM
 
-# ─────────────────────────────────────────────────────────────
-# Swift Package Manager build artifacts
-# NOTE: Package.resolved IS committed (it is a lockfile) — do not ignore it.
-# ─────────────────────────────────────────────────────────────
+# Package.resolved is committed.
 .build/
 .swiftpm/xcode/package.xcworkspace/xcuserdata/
 .swiftpm/xcode/xcuserdata/
 .swiftpm/configuration/
-Packages/
+# A bare "Packages/" rule is case-insensitive on APFS and would hide the
+# repository packages/ source tree. SwiftPM checkouts live under .build/.
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
-# Python bytecode / tool caches
 __pycache__/
 *.py[cod]
 
-# ─────────────────────────────────────────────────────────────
-# Local environment / configuration secrets
-# ─────────────────────────────────────────────────────────────
 .env
 .env.*
 !.env.example
@@ -66,11 +51,6 @@ secrets/
 *.provisionprofile
 config.local.*
 
-# ─────────────────────────────────────────────────────────────
-# Generated distribution artifacts (not source)
-# Distribution is out of scope for now; these patterns keep future
-# release output from being committed by accident.
-# ─────────────────────────────────────────────────────────────
 dist/
 release/
 export/
@@ -79,19 +59,11 @@ export/
 *.zip
 *.app.zip
 
-# ─────────────────────────────────────────────────────────────
-# Captured sensor data / probe output
-# Raw and labelled sensor captures may contain large binaries and
-# personal signals; keep them out of version control by default.
-# Commit small, sanitized samples deliberately under test Fixtures/ if needed.
-# ─────────────────────────────────────────────────────────────
+# Raw captures may contain personal signals; commit only sanitized test fixtures.
 captures/
 *.rawimu
 probe-output/
 
-# ─────────────────────────────────────────────────────────────
-# Editor / tooling scratch
-# ─────────────────────────────────────────────────────────────
 *.swp
 *~
 .idea/
