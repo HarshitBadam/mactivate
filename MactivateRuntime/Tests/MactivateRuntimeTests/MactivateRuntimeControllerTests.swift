@@ -89,6 +89,37 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         harness.controller.stop()
     }
 
+    func testDisabledSpatialDispatchKeepsFeedbackWithoutPerformingAction()
+        throws {
+        let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
+        let configuration = RuntimeConfiguration(
+            spatialTapBindings: SpatialTapBindings(
+                leftDouble: "left.double"
+            ),
+            spatialTapDispatchEnabled: false,
+            panelHintsEnabled: false
+        )
+        let harness = try makeHarness(
+            factory: ScriptedSourceFactory(tapSources: [tapSource]),
+            configuration: configuration
+        )
+        harness.controller.start()
+
+        sendIMU(
+            to: tapSource,
+            duration: 4,
+            pulses: [(1, 0, 0, 0.08), (1.4, 0, 0, 0.08)]
+        )
+        harness.drain()
+
+        XCTAssertTrue(actionIntents(in: harness.collector.outputs).isEmpty)
+        XCTAssertTrue(tapFeedback(in: harness.collector.outputs).contains {
+            $0.outcome == .dispatchDisabled(.leftDouble) &&
+                $0.regionMemberFeatures.count == 2
+        })
+        harness.controller.stop()
+    }
+
     func testRejectedAndUnmappedGroupsFailClosed() throws {
         let tapSource = ScriptedSensorSource(paths: dualIMUPaths)
         let factory = ScriptedSourceFactory(tapSources: [tapSource])
@@ -436,6 +467,13 @@ final class MactivateRuntimeControllerTests: XCTestCase {
         try harness.controller.setSpatialTapBinding(
             "left.double",
             for: .leftDouble
+        )
+        XCTAssertEqual(tapSource.startCount, 1)
+        XCTAssertEqual(tapSource.stopCount, 0)
+
+        try harness.controller.setSpatialTapDispatchEnabled(false)
+        XCTAssertFalse(
+            store.load().configuration.spatialTapDispatchEnabled
         )
         XCTAssertEqual(tapSource.startCount, 1)
         XCTAssertEqual(tapSource.stopCount, 0)

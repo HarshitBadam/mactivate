@@ -27,6 +27,7 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
                 rightDouble: "action.right-double",
                 rightTriple: "action.right-triple"
             ),
+            spatialTapDispatchEnabled: false,
             panelHintsEnabled: false
         )
 
@@ -59,7 +60,7 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
         let (defaults, key) = makeDefaults()
         let future = Data(
             """
-            {"schemaVersion":3,"spatialTapBindings":{},"panelHintsEnabled":true}
+            {"schemaVersion":4,"spatialTapBindings":{},"spatialTapDispatchEnabled":true,"panelHintsEnabled":true}
             """.utf8
         )
         defaults.set(future, forKey: key)
@@ -115,9 +116,54 @@ final class RuntimeConfigurationStoreTests: XCTestCase {
         guard case .loaded(let migrated) = result else {
             return XCTFail("version one should migrate")
         }
-        XCTAssertEqual(migrated.schemaVersion, 2)
+        XCTAssertEqual(migrated.schemaVersion, 3)
+        XCTAssertTrue(migrated.spatialTapDispatchEnabled)
         XCTAssertFalse(migrated.panelHintsEnabled)
         XCTAssertTrue(migrated.spatialTapBindings.isEmpty)
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                RuntimeConfiguration.self,
+                from: XCTUnwrap(defaults.data(forKey: key))
+            ),
+            migrated
+        )
+    }
+
+    func testVersionTwoMigrationPreservesBindingsAndEnablesDispatch() throws {
+        let (defaults, key) = makeDefaults()
+        defaults.set(Data(
+            """
+            {
+              "schemaVersion": 2,
+              "spatialTapBindings": {
+                "leftDouble": "left.double",
+                "rightTriple": "right.triple"
+              },
+              "panelHintsEnabled": false
+            }
+            """.utf8
+        ), forKey: key)
+        let store = UserDefaultsRuntimeConfigurationStore(
+            defaults: defaults,
+            key: key
+        )
+
+        let result = store.load()
+
+        guard case .loaded(let migrated) = result else {
+            return XCTFail("version two should migrate")
+        }
+        XCTAssertEqual(migrated.schemaVersion, 3)
+        XCTAssertTrue(migrated.spatialTapDispatchEnabled)
+        XCTAssertFalse(migrated.panelHintsEnabled)
+        XCTAssertEqual(
+            migrated.spatialTapBindings.leftDouble,
+            "left.double"
+        )
+        XCTAssertEqual(
+            migrated.spatialTapBindings.rightTriple,
+            "right.triple"
+        )
         XCTAssertEqual(
             try JSONDecoder().decode(
                 RuntimeConfiguration.self,

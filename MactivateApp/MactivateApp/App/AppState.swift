@@ -52,7 +52,7 @@ final class AppState: ObservableObject {
         case .inactive:
             return "Palm taps are off"
         case .warmingUp:
-            return "Connecting palm-rest sensor"
+            return "Connecting palm rest sensor"
         case .available(let rate):
             let readiness = tapCalibrationProfile?.isValid == true ?
                 "Palm taps ready" : "Sensor connected"
@@ -170,6 +170,9 @@ final class AppState: ObservableObject {
         case .acceptedUnmapped(let gesture):
             return "accepted \(gesture.side.rawValue) " +
                 "\(gesture.pattern.rawValue), no action mapped (\(latency)s)"
+        case .dispatchDisabled(let gesture):
+            return "accepted \(gesture.side.rawValue) " +
+                "\(gesture.pattern.rawValue), palm rest actions off (\(latency)s)"
         case .duplicate(let gesture):
             return "duplicate \(gesture.side.rawValue) " +
                 "\(gesture.pattern.rawValue) ignored"
@@ -193,6 +196,9 @@ final class AppState: ObservableObject {
         case .acceptedNonActionable(let pattern):
             return "\(Self.tapPatternName(pattern).capitalized) tap recognized"
         case .acceptedUnmapped(let gesture):
+            return "\(gesture.side.rawValue.capitalized) " +
+                "\(gesture.pattern.rawValue) tap recognized"
+        case .dispatchDisabled(let gesture):
             return "\(gesture.side.rawValue.capitalized) " +
                 "\(gesture.pattern.rawValue) tap recognized"
         case .duplicate(let gesture):
@@ -219,6 +225,8 @@ final class AppState: ObservableObject {
             return "The tap was recognized; no action was expected."
         case .acceptedUnmapped:
             return "No action is assigned to this gesture."
+        case .dispatchDisabled:
+            return "Palm rest actions are turned off."
         case .duplicate:
             return "This gesture had already been handled."
         case .spatialUnavailable:

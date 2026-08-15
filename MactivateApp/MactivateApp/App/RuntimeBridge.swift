@@ -18,6 +18,7 @@ protocol RuntimeControlling: AnyObject {
         _ action: ActionIdentifier?,
         for gesture: PalmTapGesture
     ) throws
+    func setSpatialTapDispatchEnabled(_ enabled: Bool) throws
     func setPanelHintsEnabled(_ enabled: Bool) throws
     func resetConfiguration() throws
     func applyTapCalibration(_ profile: RuntimeTapCalibrationProfile) throws
@@ -114,6 +115,12 @@ final class RuntimeBridge: RuntimeControlling {
     ) throws {
         try lifecycleQueue.sync {
             try controller?.setSpatialTapBinding(action, for: gesture)
+        }
+    }
+
+    func setSpatialTapDispatchEnabled(_ enabled: Bool) throws {
+        try lifecycleQueue.sync {
+            try controller?.setSpatialTapDispatchEnabled(enabled)
         }
     }
 

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsActions {
     let setSpatialTapBinding: (ActionIdentifier?, PalmTapGesture) -> Void
+    let setSpatialTapDispatchEnabled: (Bool) -> Void
     let setPanelHintsEnabled: (Bool) -> Void
     let setQuickAction: (Int, ActionIdentifier?) -> Void
     let addApplication: () -> Bool
@@ -220,7 +221,7 @@ struct SettingsView: View {
                     }
 
                     SettingsCard(
-                        "Palm-rest gestures",
+                        "Palm rest gestures",
                         subtitle: state.spatialGesturesReady
                             ? "Each side and tap count can run a different action."
                             : "Complete both calibration steps to unlock assignments.",
@@ -237,6 +238,23 @@ struct SettingsView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer()
+                            Toggle(
+                                "Palm rest actions",
+                                isOn: Binding(
+                                    get: {
+                                        state.configuration
+                                            .spatialTapDispatchEnabled
+                                    },
+                                    set: actions.setSpatialTapDispatchEnabled
+                                )
+                            )
+                            .font(.caption.weight(.regular))
+                            .foregroundStyle(.secondary)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .accessibilityIdentifier(
+                                "spatial-tap-dispatch-toggle"
+                            )
                         }
                     }
 

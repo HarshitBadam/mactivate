@@ -142,19 +142,22 @@ public struct SpatialTapBindings: Codable, Equatable, Sendable {
 }
 
 public struct RuntimeConfiguration: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var spatialTapBindings: SpatialTapBindings
+    public var spatialTapDispatchEnabled: Bool
     public var panelHintsEnabled: Bool
 
     public init(
         schemaVersion: Int = currentSchemaVersion,
         spatialTapBindings: SpatialTapBindings = SpatialTapBindings(),
+        spatialTapDispatchEnabled: Bool = true,
         panelHintsEnabled: Bool = true
     ) {
         self.schemaVersion = schemaVersion
         self.spatialTapBindings = spatialTapBindings
+        self.spatialTapDispatchEnabled = spatialTapDispatchEnabled
         self.panelHintsEnabled = panelHintsEnabled
     }
 
@@ -162,6 +165,7 @@ public struct RuntimeConfiguration: Codable, Equatable, Sendable {
 
     public static let failClosed = RuntimeConfiguration(
         spatialTapBindings: SpatialTapBindings(),
+        spatialTapDispatchEnabled: false,
         panelHintsEnabled: false
     )
 
@@ -234,6 +238,7 @@ public enum TapFeedbackOutcome: Equatable, Sendable {
     case rejected(TapRejectionReason)
     case acceptedNonActionable(TapPattern)
     case acceptedUnmapped(PalmTapGesture)
+    case dispatchDisabled(PalmTapGesture)
     case duplicate(PalmTapGesture)
     case spatialUnavailable(pattern: TapRegionPattern,
                             reason: SpatialTapUnavailableReason)

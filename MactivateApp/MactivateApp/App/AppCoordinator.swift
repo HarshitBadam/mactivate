@@ -234,6 +234,9 @@ final class AppCoordinator {
             setSpatialTapBinding: { [weak self] identifier, gesture in
                 self?.setSpatialTapBinding(identifier, gesture: gesture)
             },
+            setSpatialTapDispatchEnabled: { [weak self] enabled in
+                self?.setSpatialTapDispatchEnabled(enabled)
+            },
             setPanelHintsEnabled: { [weak self] enabled in
                 self?.setPanelHintsEnabled(enabled)
             },
@@ -410,7 +413,8 @@ final class AppCoordinator {
         _ outcome: TapFeedbackOutcome
     ) -> Bool {
         switch outcome {
-        case .acceptedNonActionable, .acceptedUnmapped, .dispatched:
+        case .acceptedNonActionable, .acceptedUnmapped, .dispatchDisabled,
+             .dispatched:
             return true
         case .spatialUnavailable(_, let reason):
             return reason != .tapCalibrationRequired
@@ -437,6 +441,16 @@ final class AppCoordinator {
     ) {
         do {
             try runtime.setSpatialTapBinding(identifier, for: gesture)
+            state.configuration = runtime.currentConfiguration
+            refreshStatusItem()
+        } catch {
+            state.recentWarning = error.localizedDescription
+        }
+    }
+
+    func setSpatialTapDispatchEnabled(_ enabled: Bool) {
+        do {
+            try runtime.setSpatialTapDispatchEnabled(enabled)
             state.configuration = runtime.currentConfiguration
             refreshStatusItem()
         } catch {

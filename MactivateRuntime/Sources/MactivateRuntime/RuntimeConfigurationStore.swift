@@ -42,6 +42,12 @@ public final class UserDefaultsRuntimeConfigurationStore:
         let panelHintsEnabled: Bool
     }
 
+    private struct VersionTwoConfiguration: Decodable {
+        let schemaVersion: Int
+        let spatialTapBindings: SpatialTapBindings
+        let panelHintsEnabled: Bool
+    }
+
     private let defaults: UserDefaults
     private let key: String
 
@@ -65,6 +71,19 @@ public final class UserDefaultsRuntimeConfigurationStore:
                 )
                 let migrated = RuntimeConfiguration(
                     spatialTapBindings: SpatialTapBindings(),
+                    panelHintsEnabled: legacy.panelHintsEnabled
+                )
+                try save(migrated)
+                return .loaded(migrated)
+            }
+            if schema.schemaVersion == 2 {
+                let legacy = try decoder.decode(
+                    VersionTwoConfiguration.self,
+                    from: data
+                )
+                let migrated = RuntimeConfiguration(
+                    spatialTapBindings: legacy.spatialTapBindings,
+                    spatialTapDispatchEnabled: true,
                     panelHintsEnabled: legacy.panelHintsEnabled
                 )
                 try save(migrated)

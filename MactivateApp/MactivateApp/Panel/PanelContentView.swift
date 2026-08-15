@@ -32,14 +32,8 @@ struct PanelContentView: View {
                 .frame(width: 30, height: 30)
                 .background(.white.opacity(0.12), in: Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Mactivate")
-                    .font(.headline)
-                Text(state.tapStatus)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
-            }
+            Text("Mactivate")
+                .font(.headline)
 
             Spacer()
 

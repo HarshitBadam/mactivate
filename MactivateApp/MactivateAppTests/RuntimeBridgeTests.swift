@@ -256,6 +256,31 @@ final class RuntimeBridgeTests: XCTestCase {
         XCTAssertNil(coordinator.state.recentWarning)
     }
 
+    func testSetSpatialTapDispatchEnabledUpdatesConfiguration() {
+        let runtime = FakeRuntime()
+        let coordinator = makeCoordinator(runtime: runtime)
+
+        coordinator.setSpatialTapDispatchEnabled(false)
+
+        XCTAssertFalse(
+            coordinator.state.configuration.spatialTapDispatchEnabled
+        )
+        XCTAssertNil(coordinator.state.recentWarning)
+    }
+
+    func testSetSpatialTapDispatchEnabledSurfacesRuntimeFailure() {
+        let runtime = FakeRuntime()
+        runtime.setSpatialTapDispatchEnabledError = TestFailure("rejected")
+        let coordinator = makeCoordinator(runtime: runtime)
+
+        coordinator.setSpatialTapDispatchEnabled(false)
+
+        XCTAssertTrue(
+            coordinator.state.configuration.spatialTapDispatchEnabled
+        )
+        XCTAssertEqual(coordinator.state.recentWarning, "rejected")
+    }
+
     func testPanelAssignmentsExcludeShowPanelButGesturesKeepIt() {
         let coordinator = makeCoordinator(runtime: FakeRuntime())
         XCTAssertTrue(
@@ -621,6 +646,7 @@ private final class FakeRuntime: RuntimeControlling {
     var startCount = 0
     var stopCount = 0
     var setSpatialTapBindingError: Error?
+    var setSpatialTapDispatchEnabledError: Error?
 
     var currentConfiguration: RuntimeConfiguration {
         configurationReadCount += 1
@@ -643,6 +669,13 @@ private final class FakeRuntime: RuntimeControlling {
             throw setSpatialTapBindingError
         }
         configuration.spatialTapBindings[gesture] = action
+    }
+
+    func setSpatialTapDispatchEnabled(_ enabled: Bool) throws {
+        if let setSpatialTapDispatchEnabledError {
+            throw setSpatialTapDispatchEnabledError
+        }
+        configuration.spatialTapDispatchEnabled = enabled
     }
 
     func setPanelHintsEnabled(_ enabled: Bool) throws {

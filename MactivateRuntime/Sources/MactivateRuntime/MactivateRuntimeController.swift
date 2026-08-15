@@ -140,6 +140,14 @@ public final class MactivateRuntimeController {
         }
     }
 
+    public func setSpatialTapDispatchEnabled(_ enabled: Bool) throws {
+        try withRuntimeQueue {
+            var updated = configuration
+            updated.spatialTapDispatchEnabled = enabled
+            try applyConfigurationLocked(updated)
+        }
+    }
+
     public func setPanelHintsEnabled(_ enabled: Bool) throws {
         try withRuntimeQueue {
             var updated = configuration
@@ -570,6 +578,23 @@ public final class MactivateRuntimeController {
             return
         }
         let gesture = PalmTapGesture(side: side, pattern: regionPattern)
+        guard configuration.spatialTapDispatchEnabled else {
+            emit(.tapFeedback(TapFeedback(
+                outcome: .dispatchDisabled(gesture),
+                memberCount: group.members.count,
+                features: firstMember,
+                sensorTimestamp: firstMember.time,
+                resolutionLatencyS: latency,
+                regionPrediction: classification.prediction,
+                regionMemberFeatures: classification.memberFeatures.map(
+                    \.gyroXPeakBalanceDegS
+                ),
+                regionFeature: classification.aggregatedFeature,
+                regionProfileVersion: classification.profileVersion,
+                regionReason: classification.reason
+            )))
+            return
+        }
         guard let action = configuration.spatialTapBindings[gesture] else {
             emit(.tapFeedback(TapFeedback(
                 outcome: .acceptedUnmapped(gesture),
