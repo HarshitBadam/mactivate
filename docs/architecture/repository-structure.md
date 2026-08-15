@@ -6,6 +6,7 @@ Production code, research code, tools, and evidence are separated at the top lev
 
 ```text
 .
+├── .github/workflows/               # tag-driven GitHub Release automation
 ├── app/
 │   ├── MactivateApp.xcodeproj/       # Xcode project and package lockfile
 │   ├── MactivateApp/
@@ -35,9 +36,11 @@ Production code, research code, tools, and evidence are separated at the top lev
 ├── tools/
 │   ├── analysis/                    # Python IMU analysis and rule scoring
 │   ├── hardware/                    # daemon context diagnostics
-│   └── maintenance/                 # repository policy checks
+│   ├── maintenance/                 # repository policy checks
+│   └── release/                     # disk image and Homebrew cask generation
 ├── docs/
 │   ├── architecture/                # system and repository design
+│   ├── release/                     # zero-cost distribution procedure
 │   └── validation/                  # measured hardware and gesture results
 ├── captures/                        # local sensor evidence, gitignored
 ├── LICENSE                          # PolyForm noncommercial license

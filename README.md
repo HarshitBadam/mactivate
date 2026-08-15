@@ -11,12 +11,16 @@ Install Mactivate with Homebrew or from the release disk image.
 ### Homebrew
 
 ```bash
-brew install --cask <cask-name>
+brew tap HarshitBadam/mactivate
+brew trust --cask HarshitBadam/mactivate/mactivate
+brew install --cask mactivate
 ```
 
 ### Disk image
 
 Download the latest `.dmg` from [GitHub Releases](https://github.com/HarshitBadam/mactivate/releases), open it, and drag Mactivate into Applications.
+
+Mactivate uses a zero-cost, ad-hoc-signed release and is not Apple-notarized. If macOS blocks the first launch, try to open Mactivate once, then approve it under **System Settings → Privacy & Security → Open Anyway**. Do not disable Gatekeeper.
 
 Open Mactivate from Applications, complete tap and left/right calibration, then assign actions to the four supported gestures and four Notch Panel slots.
 

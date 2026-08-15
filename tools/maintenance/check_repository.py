@@ -12,6 +12,7 @@ MAX_LINES = 300
 MAX_ITEMS_PER_DIRECTORY = 12
 SOURCE_SUFFIXES = {".py", ".sh", ".swift"}
 EXPECTED_ROOT_ITEMS = {
+    ".github",
     ".gitignore",
     "LICENSE",
     "README.md",

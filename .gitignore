@@ -52,7 +52,7 @@ secrets/
 config.local.*
 
 dist/
-release/
+/release/
 export/
 *.dmg
 *.pkg

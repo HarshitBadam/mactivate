@@ -5,6 +5,7 @@
 - `analysis/` inspects IMU captures and scores the validated palm-tap rule.
 - `hardware/` checks sensor access outside the normal interactive app context.
 - `maintenance/` enforces repository structure and dependency boundaries.
+- `release/` builds the release disk image and renders its Homebrew cask.
 
 Run tools from the repository root:
 
@@ -13,4 +14,5 @@ python3 tools/maintenance/check_repository.py
 python3 tools/analysis/analyze_imu.py <capture-directory>
 python3 tools/analysis/score_rule.py <capture-directory>
 tools/hardware/check_daemon_context.sh
+tools/release/build_dmg.sh 1.0.0
 ```

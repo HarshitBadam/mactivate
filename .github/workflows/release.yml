@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Build disk image
+        run: tools/release/build_dmg.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Render Homebrew cask
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tools/release/render_cask.sh \
+            "$version" \
+            "build/release/dist/Mactivate-$version.dmg" \
+            "build/release/dist/mactivate.rb"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "build/release/dist/Mactivate-$version.dmg" \
+            "build/release/dist/Mactivate-$version.dmg.sha256" \
+            "build/release/dist/mactivate.rb" \
+            --generate-notes \
+            --title "Mactivate $version" \
+            --verify-tag
