@@ -28,15 +28,16 @@ private enum SettingsMetrics {
     static let hairline: CGFloat = 1
     static let compact: CGFloat = 4
     static let iconGap: CGFloat = 6
-    static let controlGap: CGFloat = 8
-    static let fieldGap: CGFloat = 12
-    static let cardInset: CGFloat = 16
-    static let headerGap: CGFloat = 18
-    static let pageInset: CGFloat = 24
-    static let sectionGap: CGFloat = 24
+    static let controlGap: CGFloat = 10
+    static let fieldGap: CGFloat = 14
+    static let cardInset: CGFloat = 20
+    static let headerToCard: CGFloat = 12
+    static let pageInset: CGFloat = 28
+    static let paneTopInset: CGFloat = 18
+    static let sectionGap: CGFloat = 30
     static let majorGap: CGFloat = 32
-    static let rowHeight: CGFloat = 48
-    static let cardRadius: CGFloat = 12
+    static let rowHeight: CGFloat = 44
+    static let cardRadius: CGFloat = 10
 }
 
 private struct SettingsPageHeader: View {
@@ -46,15 +47,7 @@ private struct SettingsPageHeader: View {
     var accessory: AnyView? = nil
 
     var body: some View {
-        HStack(alignment: .center, spacing: SettingsMetrics.fieldGap) {
-            Image(systemName: symbol)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .background(
-                    Color.accentColor.gradient,
-                    in: RoundedRectangle(cornerRadius: 8)
-                )
+        HStack(alignment: .firstTextBaseline, spacing: SettingsMetrics.fieldGap) {
             VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
                 Text(title)
                     .font(.title2.bold())
@@ -69,6 +62,9 @@ private struct SettingsPageHeader: View {
     }
 }
 
+/// A native-style grouped section. Mirrors the look of a macOS System
+/// Settings pane: a plain header above a single flat surface, rather than
+/// a separately bordered "card" per section.
 private struct SettingsCard<Content: View>: View {
     let title: String
     let subtitle: String?
@@ -88,39 +84,25 @@ private struct SettingsCard<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
-            HStack(alignment: .top, spacing: SettingsMetrics.controlGap) {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Color.accentColor.opacity(0.12),
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
-                    Text(title)
-                        .font(.headline)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: SettingsMetrics.headerToCard) {
+            VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
+                Text(title)
+                    .font(.headline)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
-            content
-        }
-        .padding(SettingsMetrics.cardInset)
-        .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.78),
-            in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                .stroke(
-                    Color(nsColor: .separatorColor).opacity(0.65),
-                    lineWidth: SettingsMetrics.hairline
-                )
+            VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
+                content
+            }
+            .padding(SettingsMetrics.cardInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color(nsColor: .controlBackgroundColor),
+                in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
+            )
         }
     }
 }
@@ -163,33 +145,22 @@ private struct SettingsStatusBadge: View {
                 : "exclamationmark.circle.fill"
         )
         .font(.caption.weight(.semibold))
-        .foregroundStyle(ready ? Color.green : Color.orange)
+        .foregroundStyle(ready ? Color.secondary : Color.orange)
         .padding(.horizontal, SettingsMetrics.controlGap)
         .padding(.vertical, SettingsMetrics.compact)
         .background(
-            (ready ? Color.green : Color.orange).opacity(0.10),
+            ready
+                ? Color.secondary.opacity(0.12)
+                : Color.orange.opacity(0.12),
             in: Capsule()
         )
     }
 }
 
 private struct SettingsBackdrop: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(colorScheme == .dark ? 0.42 : 0.04),
-                    Color(nsColor: .windowBackgroundColor).opacity(0.72)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-        .ignoresSafeArea()
+        Color(nsColor: .windowBackgroundColor)
+            .ignoresSafeArea()
     }
 }
 
@@ -197,49 +168,56 @@ struct SettingsView: View {
     @ObservedObject var state: AppState
     let actions: SettingsActions
 
-    @State private var showingAddAction = false
+    @State private var showingActionLibrary = false
 
     var body: some View {
-        TabView {
-            actionsPane
-                .tabItem { Label("Actions", systemImage: "bolt.fill") }
-            general
-                .tabItem { Label("General", systemImage: "gearshape") }
-            diagnostics
-                .tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
+        ZStack {
+            SettingsBackdrop()
+            TabView {
+                actionsPane
+                    .tabItem { Label("Actions", systemImage: "bolt.fill") }
+                general
+                    .tabItem { Label("General", systemImage: "gearshape") }
+                diagnostics
+                    .tabItem { Label("Diagnostics", systemImage: "waveform.path.ecg") }
+            }
+            .padding(SettingsMetrics.cardInset)
         }
-        .padding(SettingsMetrics.headerGap)
         .frame(minWidth: 900, minHeight: 650)
-        .background(SettingsBackdrop())
         .tint(.accentColor)
-        .sheet(isPresented: $showingAddAction) {
-            AddActionSheet(
-                state: state,
-                actions: actions,
-                isPresented: $showingAddAction
-            )
+        .sheet(isPresented: $showingActionLibrary) {
+            ActionLibrarySheet(state: state, actions: actions)
         }
     }
 
     private var actionsPane: some View {
-        HStack(alignment: .top, spacing: SettingsMetrics.pageInset) {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsPageHeader(
+                title: "Actions",
+                subtitle: "Build actions once, then assign them to taps or the notch.",
+                symbol: "bolt.fill",
+                accessory: AnyView(
+                    Button {
+                        showingActionLibrary = true
+                    } label: {
+                        Label("Action Library", systemImage: "square.stack.3d.up")
+                    }
+                    .buttonStyle(.bordered)
+                )
+            )
+            .padding(.horizontal, SettingsMetrics.pageInset)
+            .padding(.top, SettingsMetrics.paneTopInset)
+            .padding(.bottom, SettingsMetrics.sectionGap)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
-                    SettingsPageHeader(
-                        title: "Actions",
-                        subtitle: "Build actions once, then assign them to taps or the notch.",
-                        symbol: "bolt.fill",
-                        accessory: AnyView(
-                            Button {
-                                showingAddAction = true
-                            } label: {
-                                Label("New Action", systemImage: "plus")
-                            }
-                            .buttonStyle(.borderedProminent)
-                        )
-                    )
-
-                    CalibrationWorkspace(state: state, actions: actions)
+                    SettingsCard(
+                        "Notch panel",
+                        subtitle: "Arrange the four actions shown in the expanded notch.",
+                        symbol: "rectangle.topthird.inset.filled"
+                    ) {
+                        PanelSlotPreview(state: state, actions: actions)
+                    }
 
                     SettingsCard(
                         "Palm-rest gestures",
@@ -249,7 +227,6 @@ struct SettingsView: View {
                         symbol: "hand.tap.fill"
                     ) {
                         spatialGestureGrid
-                        Divider()
                         HStack(spacing: SettingsMetrics.controlGap) {
                             SettingsStatusBadge(
                                 title: state.spatialGesturesReady
@@ -263,130 +240,12 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsCard(
-                        "Notch panel",
-                        subtitle: "Arrange the four actions shown in the expanded notch.",
-                        symbol: "rectangle.topthird.inset.filled"
-                    ) {
-                        PanelSlotPreview(state: state, actions: actions)
-                    }
+                    CalibrationWorkspace(state: state, actions: actions)
                 }
-                .padding(.trailing, SettingsMetrics.compact)
+                .padding(.horizontal, SettingsMetrics.pageInset)
                 .padding(.bottom, SettingsMetrics.pageInset)
             }
-            .frame(maxWidth: .infinity)
-
-            Divider()
-
-            actionLibrary
-                .frame(width: 288)
-        }
-    }
-
-    private var actionLibrary: some View {
-        VStack(alignment: .leading, spacing: SettingsMetrics.fieldGap) {
-            HStack {
-                VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
-                    Text("Action Library")
-                        .font(.headline)
-                    Text("\(state.actions.count) available")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    showingAddAction = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.bordered)
-                .help("Create a new action")
-            }
-
-            Text("Test an action before assigning it to a gesture or slot.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            ScrollView {
-                LazyVStack(spacing: SettingsMetrics.controlGap) {
-                    ForEach(state.actions) { action in
-                        HStack(spacing: SettingsMetrics.controlGap) {
-                            Image(systemName: action.kind.symbolName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 32, height: 32)
-                                .background(
-                                    Color.accentColor.opacity(0.10),
-                                    in: RoundedRectangle(cornerRadius: 8)
-                                )
-                            VStack(
-                                alignment: .leading,
-                                spacing: SettingsMetrics.compact
-                            ) {
-                                Text(action.name)
-                                    .font(.callout.weight(.medium))
-                                    .lineLimit(1)
-                                Text(actionDetail(action))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Button {
-                                actions.testAction(action.id)
-                            } label: {
-                                Image(systemName: "play.fill")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Test \(action.name)")
-                            if action.id != AppActionDefinition.showPanel.id {
-                                Button(role: .destructive) {
-                                    actions.deleteAction(action.id)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Delete \(action.name)")
-                            }
-                        }
-                        .padding(SettingsMetrics.controlGap)
-                        .frame(minHeight: SettingsMetrics.rowHeight)
-                        .background(
-                            Color.black.opacity(0.16),
-                            in: RoundedRectangle(cornerRadius: 8)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(
-                                    Color(nsColor: .separatorColor).opacity(0.45),
-                                    lineWidth: SettingsMetrics.hairline
-                                )
-                        }
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier(
-                            "action-library-\(action.id.rawValue)"
-                        )
-                    }
-                }
-            }
-
-            if let error = state.actionError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-        .padding(SettingsMetrics.cardInset)
-        .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.78),
-            in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                .stroke(
-                    Color(nsColor: .separatorColor).opacity(0.65),
-                    lineWidth: SettingsMetrics.hairline
-                )
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -441,14 +300,18 @@ struct SettingsView: View {
     }
 
     private var general: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
-                SettingsPageHeader(
-                    title: "General",
-                    subtitle: "Startup, panel behavior, and calibration maintenance.",
-                    symbol: "gearshape.fill"
-                )
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsPageHeader(
+                title: "General",
+                subtitle: "Startup, panel behavior, and calibration maintenance.",
+                symbol: "gearshape.fill"
+            )
+            .padding(.horizontal, SettingsMetrics.pageInset)
+            .padding(.top, SettingsMetrics.paneTopInset)
+            .padding(.bottom, SettingsMetrics.sectionGap)
 
+            ScrollView {
+                VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
                 SettingsCard(
                     "Startup",
                     subtitle: "Keep Mactivate available from the menu bar.",
@@ -501,7 +364,6 @@ struct SettingsView: View {
                         value: state.tapCalibrationStatus,
                         ready: state.tapCalibrationProfile?.isValid == true
                     )
-                    Divider()
                     calibrationStatusRow(
                         title: "Left/right detection",
                         value: state.tapRegionCalibrationStatus,
@@ -541,8 +403,10 @@ struct SettingsView: View {
                     )
                 }
             }
-            .padding(.trailing, SettingsMetrics.compact)
-            .padding(.bottom, SettingsMetrics.pageInset)
+                .padding(.horizontal, SettingsMetrics.pageInset)
+                .padding(.bottom, SettingsMetrics.pageInset)
+            }
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -614,17 +478,11 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(SettingsMetrics.cardInset)
             }
+            .scrollIndicators(.hidden)
             .background(
-                Color.black.opacity(0.48),
+                Color(nsColor: .textBackgroundColor),
                 in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                    .stroke(
-                        Color.white.opacity(0.08),
-                        lineWidth: SettingsMetrics.hairline
-                    )
-            }
             HStack {
                 Button("Copy Diagnostics", action: copyDiagnostics)
                 Spacer()
@@ -636,7 +494,9 @@ struct SettingsView: View {
                 }
             }
         }
-        .padding(.bottom, SettingsMetrics.controlGap)
+        .padding(.horizontal, SettingsMetrics.pageInset)
+        .padding(.top, SettingsMetrics.paneTopInset)
+        .padding(.bottom, SettingsMetrics.pageInset)
     }
 
     private func statusCard(
@@ -647,13 +507,8 @@ struct SettingsView: View {
     ) -> some View {
         HStack(spacing: SettingsMetrics.controlGap) {
             Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(ready ? Color.green : Color.orange)
-                .frame(width: 32, height: 32)
-                .background(
-                    (ready ? Color.green : Color.orange).opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 8)
-                )
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(ready ? Color.secondary : Color.orange)
             VStack(
                 alignment: .leading,
                 spacing: SettingsMetrics.compact
@@ -665,21 +520,14 @@ struct SettingsView: View {
                     .font(.callout.weight(.semibold))
                     .lineLimit(2)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(SettingsMetrics.fieldGap)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.78),
+            Color(nsColor: .controlBackgroundColor),
             in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                .stroke(
-                    Color(nsColor: .separatorColor).opacity(0.65),
-                    lineWidth: SettingsMetrics.hairline
-                )
-        }
         .accessibilityElement(children: .combine)
     }
 
@@ -692,9 +540,9 @@ struct SettingsView: View {
             Image(
                 systemName: ready
                     ? "checkmark.circle.fill"
-                    : "circle.dashed"
+                    : "exclamationmark.circle.fill"
             )
-            .foregroundStyle(ready ? Color.green : Color.secondary)
+            .foregroundStyle(ready ? Color.secondary : Color.orange)
             VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
                 Text(title)
                 Text(value)
@@ -703,7 +551,7 @@ struct SettingsView: View {
             }
             Spacer()
         }
-        .frame(minHeight: 36)
+        .frame(minHeight: SettingsMetrics.rowHeight)
         .accessibilityElement(children: .combine)
     }
 
@@ -720,15 +568,6 @@ struct SettingsView: View {
             return true
         }
         return false
-    }
-
-    private func actionDetail(_ action: AppActionDefinition) -> String {
-        switch action.kind {
-        case .showPanel: return "Built in"
-        case .application(let identifier): return identifier
-        case .webURL(let value): return value
-        case .shortcut: return "Shortcut"
-        }
     }
 }
 
@@ -829,12 +668,10 @@ private struct PanelSlotPreview: View {
             in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                .stroke(
-                    state.settingsFocusedSlot == index
-                        ? Color.accentColor : Color.white.opacity(0.08),
-                    lineWidth: 2
-                )
+            if state.settingsFocusedSlot == index {
+                RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
+                    .stroke(Color.accentColor, lineWidth: 2)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(labels[index]) notch slot")
@@ -886,6 +723,7 @@ private struct CalibrationWorkspace: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .padding(.leading, SettingsMetrics.fieldGap)
             }
         }
     }
@@ -921,7 +759,7 @@ private struct CalibrationView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
 
-            VStack(spacing: SettingsMetrics.controlGap) {
+            VStack(spacing: SettingsMetrics.iconGap) {
                 ForEach(targets, id: \.self) { target in
                     captureRow(target)
                 }
@@ -966,15 +804,10 @@ private struct CalibrationView: View {
             intensity: target.intensity
         )
         let isActive = state.tapCalibrationTarget == target
+        let isDone = count >= TapCalibrationDraft.requiredSamplesPerTarget
         return HStack(spacing: SettingsMetrics.controlGap) {
-            Image(
-                systemName: count >= TapCalibrationDraft.requiredSamplesPerTarget
-                    ? "checkmark.circle.fill" : "circle"
-            )
-            .foregroundStyle(
-                count >= TapCalibrationDraft.requiredSamplesPerTarget
-                    ? .green : .secondary
-            )
+            Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isDone ? .primary : .secondary)
             Text("\(target.side.rawValue.capitalized) · \(target.intensity.rawValue.capitalized)")
             Spacer()
             Text(
@@ -983,31 +816,20 @@ private struct CalibrationView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             Button(
-                isActive ? "Capturing…" :
-                    count >= TapCalibrationDraft.requiredSamplesPerTarget
-                        ? "Redo" : "Capture"
+                isActive ? "Capturing…" : isDone ? "Redo" : "Capture"
             ) {
                 actions.beginCalibrationCapture(target)
             }
             .disabled(isActive)
         }
-        .padding(.horizontal, SettingsMetrics.controlGap)
+        .padding(.horizontal, SettingsMetrics.fieldGap)
         .frame(minHeight: SettingsMetrics.rowHeight)
         .background(
             isActive
-                ? Color.accentColor.opacity(0.10)
-                : Color.black.opacity(0.12),
-            in: RoundedRectangle(cornerRadius: 8)
+                ? Color.accentColor.opacity(0.12)
+                : Color(nsColor: .textBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 6)
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(
-                    isActive
-                        ? Color.accentColor.opacity(0.65)
-                        : Color(nsColor: .separatorColor).opacity(0.35),
-                    lineWidth: SettingsMetrics.hairline
-                )
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "\(target.side.rawValue) \(target.intensity.rawValue), " +
@@ -1115,13 +937,8 @@ private struct RegionCalibrationView: View {
                             ? "hand.point.left.fill"
                             : "hand.point.right.fill"
                     )
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Color.accentColor.opacity(0.32),
-                        in: RoundedRectangle(cornerRadius: 12)
-                    )
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
                     VStack(
                         alignment: .leading,
                         spacing: SettingsMetrics.compact
@@ -1135,39 +952,27 @@ private struct RegionCalibrationView: View {
                                 "perform \(target.pattern.memberCount) taps"
                         )
                         .font(.callout)
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("READY")
                         .font(.caption.bold())
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color.accentColor)
                 }
                 .padding(SettingsMetrics.cardInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    Color.black.opacity(0.72),
+                    Color.accentColor.opacity(0.12),
                     in: RoundedRectangle(
                         cornerRadius: SettingsMetrics.cardRadius
                     )
                 )
-                .overlay {
-                    RoundedRectangle(
-                        cornerRadius: SettingsMetrics.cardRadius
-                    )
-                    .stroke(
-                        Color.accentColor.opacity(0.36),
-                        lineWidth: SettingsMetrics.hairline
-                    )
-                }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("region-calibration-target")
             }
 
-            VStack(spacing: SettingsMetrics.controlGap) {
-                ForEach(
-                    TapRegionCalibrationTarget.ordered,
-                    id: \.self
-                ) { target in
+            VStack(spacing: SettingsMetrics.iconGap) {
+                ForEach(TapRegionCalibrationTarget.ordered, id: \.self) { target in
                     calibrationProgressRow(target)
                 }
             }
@@ -1212,12 +1017,10 @@ private struct RegionCalibrationView: View {
     ) -> some View {
         let count = state.tapRegionCalibrationDraft.sampleCount(target: target)
         let required = TapRegionCalibrationDraft.requiredGesturesPerTarget
+        let isDone = count >= required
         return HStack(spacing: SettingsMetrics.controlGap) {
-            Image(
-                systemName: count >= required
-                    ? "checkmark.circle.fill" : "circle"
-            )
-            .foregroundStyle(count >= required ? Color.green : Color.secondary)
+            Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isDone ? .primary : .secondary)
             Text("\(target.side.rawValue.capitalized) palm rest")
             Text("·")
                 .foregroundStyle(.tertiary)
@@ -1228,17 +1031,133 @@ private struct RegionCalibrationView: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, SettingsMetrics.controlGap)
-        .frame(minHeight: 36)
+        .padding(.horizontal, SettingsMetrics.fieldGap)
+        .frame(minHeight: SettingsMetrics.rowHeight)
         .background(
-            Color.black.opacity(0.12),
-            in: RoundedRectangle(cornerRadius: 8)
+            Color(nsColor: .textBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 6)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(target.side.rawValue) \(target.pattern.rawValue), " +
                 "\(count) of \(required)"
         )
+    }
+}
+
+/// A standalone modal for browsing, testing, and deleting saved actions.
+/// Kept separate from the Actions tab so assigning gestures/slots and
+/// managing the underlying library are two distinct, focused surfaces.
+private struct ActionLibrarySheet: View {
+    @ObservedObject var state: AppState
+    let actions: SettingsActions
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var showingAddAction = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
+            HStack(alignment: .top, spacing: SettingsMetrics.fieldGap) {
+                VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
+                    Text("Action Library")
+                        .font(.title2.bold())
+                    Text(
+                        "\(state.actions.count) action" +
+                            (state.actions.count == 1 ? "" : "s") +
+                            " available. Test one before assigning it to a gesture or slot."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: SettingsMetrics.fieldGap)
+                Button {
+                    showingAddAction = true
+                } label: {
+                    Label("New Action", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: SettingsMetrics.iconGap) {
+                    ForEach(state.actions) { action in
+                        actionRow(action)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity)
+
+            if let error = state.actionError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(SettingsMetrics.pageInset)
+        .frame(width: 480, height: 560)
+        .background(SettingsBackdrop())
+        .sheet(isPresented: $showingAddAction) {
+            AddActionSheet(
+                state: state,
+                actions: actions,
+                isPresented: $showingAddAction
+            )
+        }
+    }
+
+    private func actionRow(_ action: AppActionDefinition) -> some View {
+        HStack(spacing: SettingsMetrics.controlGap) {
+            Image(systemName: action.kind.symbolName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
+                Text(action.name)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(actionDetail(action))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                actions.testAction(action.id)
+            } label: {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Test \(action.name)")
+            if action.id != AppActionDefinition.showPanel.id {
+                Button(role: .destructive) {
+                    actions.deleteAction(action.id)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Delete \(action.name)")
+            }
+        }
+        .padding(.vertical, SettingsMetrics.controlGap)
+        .frame(minHeight: SettingsMetrics.rowHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("action-library-\(action.id.rawValue)")
+    }
+
+    private func actionDetail(_ action: AppActionDefinition) -> String {
+        switch action.kind {
+        case .showPanel: return "Built in"
+        case .application(let identifier): return identifier
+        case .webURL(let value): return value
+        case .shortcut: return "Shortcut"
+        }
     }
 }
 
@@ -1254,20 +1173,12 @@ private struct AddActionSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
-            HStack(spacing: SettingsMetrics.fieldGap) {
-                Image(systemName: "plus.square.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(Color.accentColor)
-                VStack(
-                    alignment: .leading,
-                    spacing: SettingsMetrics.compact
-                ) {
-                    Text("New Action")
-                        .font(.title2.bold())
-                    Text("Choose one focused response for a tap or notch slot.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
+                Text("New Action")
+                    .font(.title2.bold())
+                Text("Choose one focused response for a tap or notch slot.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             Picker("Action type", selection: $selection) {
@@ -1388,41 +1299,16 @@ private struct AddActionSheet: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
-            HStack(spacing: SettingsMetrics.fieldGap) {
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Color.accentColor.opacity(0.12),
-                        in: RoundedRectangle(cornerRadius: 8)
-                    )
-                VStack(
-                    alignment: .leading,
-                    spacing: SettingsMetrics.compact
-                ) {
-                    Text(title)
-                        .font(.headline)
-                    Text(detail)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
+                Label(title, systemImage: symbol)
+                    .font(.headline)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             content()
         }
-        .padding(SettingsMetrics.cardInset)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            Color.black.opacity(0.22),
-            in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                .stroke(
-                    Color(nsColor: .separatorColor).opacity(0.55),
-                    lineWidth: SettingsMetrics.hairline
-                )
-        }
     }
 
     private func labeledField<Content: View>(
@@ -1535,16 +1421,9 @@ struct OnboardingView: View {
             .padding(SettingsMetrics.cardInset)
             .frame(maxWidth: 432, alignment: .leading)
             .background(
-                Color(nsColor: .controlBackgroundColor).opacity(0.78),
+                Color(nsColor: .controlBackgroundColor),
                 in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-                    .stroke(
-                        Color(nsColor: .separatorColor).opacity(0.65),
-                        lineWidth: SettingsMetrics.hairline
-                    )
-            }
 
             HStack(spacing: SettingsMetrics.controlGap) {
                 Button("Set Up Now") {
@@ -1565,8 +1444,8 @@ struct OnboardingView: View {
             title,
             systemImage: complete ? "checkmark.circle.fill" : "circle"
         )
-        .foregroundStyle(complete ? Color.green : Color.primary)
-        .frame(minHeight: 36)
+        .foregroundStyle(complete ? Color.primary : Color.secondary)
+        .frame(minHeight: SettingsMetrics.rowHeight)
     }
 }
 
