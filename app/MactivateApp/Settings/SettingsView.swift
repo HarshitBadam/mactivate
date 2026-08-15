@@ -31,7 +31,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsPageHeader(
                 title: "Actions",
-                subtitle: "Build actions once, then assign them to taps or the notch.",
+                subtitle: "Build actions once, then assign them to taps or the Notch Panel.",
                 symbol: "bolt.fill",
                 accessory: AnyView(
                     Button {
@@ -49,8 +49,8 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
                     SettingsCard(
-                        "Notch panel",
-                        subtitle: "Arrange the four actions shown in the expanded notch.",
+                        "Notch Panel",
+                        subtitle: "Choose the four actions shown when the Notch Panel opens.",
                         symbol: "rectangle.topthird.inset.filled"
                     ) {
                         PanelSlotPreview(state: state, actions: actions)
@@ -230,7 +230,7 @@ private struct PanelSlotPreview: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(labels[index]) notch slot")
+        .accessibilityLabel("\(labels[index]) Notch Panel slot")
         .accessibilityIdentifier("panel-slot-\(index)")
     }
 }

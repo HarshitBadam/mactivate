@@ -64,7 +64,7 @@ final class RuntimeLifecycleTests: XCTestCase {
         XCTAssertEqual(coordinator.state.tapStatus, "Sensor connected at 796 Hz")
         XCTAssertEqual(
             coordinator.state.panelHintStatus,
-            "Hover unavailable in dim light"
+            "Notch Hover unavailable in dim light"
         )
     }
 

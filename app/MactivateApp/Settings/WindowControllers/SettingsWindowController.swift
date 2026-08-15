@@ -8,7 +8,7 @@ final class SettingsWindowController: NSWindowController {
             rootView: SettingsView(state: state, actions: actions)
         )
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "Mactivate Settings"
+        window.title = "Mactivate Configuration"
         window.styleMask = [
             .titled,
             .closable,

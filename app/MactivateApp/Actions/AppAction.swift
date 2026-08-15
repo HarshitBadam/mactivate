@@ -28,7 +28,7 @@ struct AppActionDefinition: Codable, Equatable, Identifiable {
 
     static let showPanel = AppActionDefinition(
         id: "builtin.show-panel",
-        name: "Show Panel",
+        name: "Show Notch Panel",
         kind: .showPanel
     )
 

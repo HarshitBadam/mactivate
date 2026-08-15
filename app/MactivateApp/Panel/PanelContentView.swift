@@ -21,7 +21,7 @@ struct PanelContentView: View {
         .frame(width: 358, alignment: .top)
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Mactivate quick actions")
+        .accessibilityLabel("Mactivate Notch Panel")
     }
 
     private var header: some View {
@@ -32,7 +32,7 @@ struct PanelContentView: View {
                 .frame(width: 30, height: 30)
                 .background(.white.opacity(0.12), in: Circle())
 
-            Text("Mactivate")
+            Text("Notch Panel")
                 .font(.headline)
 
             Spacer()
@@ -43,8 +43,8 @@ struct PanelContentView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white.opacity(0.75))
-            .help("Settings")
-            .accessibilityLabel("Open Mactivate settings")
+            .help("Configuration")
+            .accessibilityLabel("Open Mactivate Configuration Window")
         }
     }
 

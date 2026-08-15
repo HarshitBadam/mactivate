@@ -3,7 +3,7 @@ import Foundation
 /// Reproduces `tools/analysis/analyze_imu.py`'s pipeline operation-for-operation —
 /// centered moving-average detrend, threshold + refractory event detection,
 /// ±25 ms signed impulses, gap grouping — followed by the tiered accept rule
-/// validated in docs/probe-results/2026-07-24-mac14-2-discovery.md.
+/// validated in docs/validation/product-validation.md.
 ///
 /// Later group members are never gated — ring-down from a prior tap flips
 /// their impulse sign ~45% of the time (measured), so only the first member

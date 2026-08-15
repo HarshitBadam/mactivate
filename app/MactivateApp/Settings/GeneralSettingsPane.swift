@@ -8,7 +8,7 @@ struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsPageHeader(
                 title: "General",
-                subtitle: "Startup, panel behavior, and calibration maintenance.",
+                subtitle: "Startup, Notch Hover, and calibration maintenance.",
                 symbol: "gearshape.fill"
             )
             .padding(.horizontal, SettingsMetrics.pageInset)
@@ -36,12 +36,12 @@ struct GeneralSettingsPane: View {
                 }
 
                 SettingsCard(
-                    "Experimental hover",
-                    subtitle: "A best-effort hint that can reveal the notch panel.",
+                    "Notch Hover",
+                    subtitle: "A best-effort hint that can open the Notch Panel.",
                     symbol: "light.max"
                 ) {
                     SettingsToggleRow(
-                        title: "Open from ambient-light hints",
+                        title: "Open the Notch Panel from ambient-light hints",
                         detail: state.panelHintStatus,
                         symbol: "hand.wave",
                         isOn: Binding(
@@ -53,7 +53,7 @@ struct GeneralSettingsPane: View {
                     )
                     Text(
                         "Lighting and moving shadows can make this unavailable. " +
-                            "Hover hints never run an action."
+                            "Notch Hover never runs an action."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -98,7 +98,7 @@ struct GeneralSettingsPane: View {
 
                 SettingsCard(
                     "Reset actions and assignments",
-                    subtitle: "Clears custom actions, notch slots, gesture assignments, and hover preferences. Calibration is preserved.",
+                    subtitle: "Clears custom actions, Notch Panel slots, gesture assignments, and Notch Hover preferences. Calibration is preserved.",
                     symbol: "arrow.counterclockwise"
                 ) {
                     Button(

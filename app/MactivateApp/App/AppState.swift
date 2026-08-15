@@ -124,17 +124,17 @@ final class AppState: ObservableObject {
     var panelHintStatus: String {
         switch snapshot.panelHint {
         case .inactive:
-            return "Experimental hover is off"
+            return "Notch Hover is off"
         case .disabled:
-            return "Experimental hover disabled"
+            return "Notch Hover disabled"
         case .warmingUp:
-            return "Experimental hover warming up"
+            return "Notch Hover warming up"
         case .available:
-            return "Experimental hover ready"
+            return "Notch Hover ready"
         case .tooDim:
-            return "Hover unavailable in dim light"
+            return "Notch Hover unavailable in dim light"
         case .unavailable(let reason):
-            return "Experimental hover unavailable: \(reason)"
+            return "Notch Hover unavailable: \(reason)"
         }
     }
 

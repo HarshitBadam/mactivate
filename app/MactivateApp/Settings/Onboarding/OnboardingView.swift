@@ -51,7 +51,7 @@ struct OnboardingView: View {
                     complete: !state.configuration.spatialTapBindings.isEmpty
                 )
                 setupStep(
-                    "Optionally fill the four notch slots",
+                    "Optionally fill the four Notch Panel slots",
                     complete: state.preferences.normalizedQuickActionIDs.contains {
                         $0 != nil
                     }

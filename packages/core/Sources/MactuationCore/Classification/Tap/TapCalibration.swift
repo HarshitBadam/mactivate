@@ -3,7 +3,7 @@ import Foundation
 /// Palm-rest side, used as a *calibration provenance label* for the
 /// accelerometer acceptance tiers here. H-TAP-REGION is refuted on the target
 /// machine (no per-tap lateral localization exists from the accelerometer
-/// alone — see docs/research/gesture-hypotheses.md), so acceptance itself
+/// alone — see docs/validation/product-validation.md), so acceptance itself
 /// never attributes a detected tap to a side. Per-side entries instead record
 /// independently learned acceptance cuts; the later gyroscope-based region
 /// stage (`TapRegionStreamClassifier`) is what localizes left/right, and only
@@ -23,7 +23,7 @@ public enum PalmSide: String, Codable, CaseIterable, Sendable, Comparable {
 /// identically, byte for byte.
 ///
 /// The values in `mac14_2Discovery` are the ones measured and validated in
-/// docs/probe-results/2026-07-24-mac14-2-discovery.md; they are not tunable
+/// docs/validation/product-validation.md; they are not tunable
 /// defaults. Changing any value requires a new `version` string and fresh
 /// measured fixtures.
 public struct TapCalibration: Codable, Equatable, Sendable {

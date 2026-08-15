@@ -1,78 +1,75 @@
 # Repository structure
 
-Mactivate separates shipped application code, reusable packages, research, and
-developer tooling so each area can be understood and built independently.
+Production code, research code, tools, and evidence are separated at the top level.
 
-## Top-level ownership
+## Repository map
 
-- `app/` contains the Xcode application and app-owned tests.
-- `packages/core/` contains one Swift package with four products:
-  `MactuationCore` (production sensor models and classifiers),
-  `MactuationHardware` (macOS IOKit adapters), `MactuationCapture` (on-disk
-  session format), and `MactuationTestSupport` (mock/replay sources). Capture
-  and test-support are not linked into the shipped application.
-- `packages/runtime/` contains product runtime orchestration, persistence, and
-  lifecycle handling.
-- `research/analysis/` contains offline model fitting and evaluation.
-- `research/probe/` contains the hardware discovery and capture CLI.
-- `tools/analysis/` contains offline IMU analysis and rule scoring.
-- `tools/hardware/` contains daemon-context diagnostics.
-- `tools/maintenance/` contains repository layout and boundary checks.
-- `docs/` contains architecture, research evidence, and measured probe results.
+```text
+.
+├── app/
+│   ├── MactivateApp.xcodeproj/       # Xcode project and package lockfile
+│   ├── MactivateApp/
+│   │   ├── App/                     # lifecycle, state, and runtime bridge
+│   │   ├── Actions/                 # application, URL, Shortcut, and Notch Panel
+│   │   ├── Lifecycle/               # launch at login
+│   │   ├── MenuBar/                 # menu bar item and manual Notch Panel entry
+│   │   ├── Panel/                   # notch and top-center panel presentation
+│   │   ├── Preferences/             # app settings persistence
+│   │   ├── Resources/               # asset catalog
+│   │   └── Settings/                # Configuration Window, onboarding, and calibration
+│   └── MactivateAppTests/            # app and integration tests
+├── packages/
+│   ├── core/
+│   │   ├── Sources/
+│   │   │   ├── MactuationCore/      # sensor contracts and classifiers
+│   │   │   ├── MactuationHardware/  # macOS IOKit adapters
+│   │   │   ├── MactuationCapture/   # capture storage and replay
+│   │   │   └── MactuationTestSupport/ # mocks and deterministic test support
+│   │   └── Tests/                   # core package tests and fixtures
+│   └── runtime/
+│       ├── Sources/MactivateRuntime/ # configuration, persistence, routing, and lifecycle
+│       └── Tests/                   # runtime tests
+├── research/
+│   ├── analysis/                    # offline fitting and capture evaluation
+│   └── probe/                       # hardware discovery and capture CLI
+├── tools/
+│   ├── analysis/                    # Python IMU analysis and rule scoring
+│   ├── hardware/                    # daemon context diagnostics
+│   └── maintenance/                 # repository policy checks
+├── docs/
+│   ├── architecture/                # system and repository design
+│   └── validation/                  # measured hardware and gesture results
+├── captures/                        # local sensor evidence, gitignored
+├── LICENSE                          # PolyForm noncommercial license
+└── README.md                        # project overview
+```
 
-Local sensor captures remain in the gitignored root `captures/` directory. They
-are evidence from a particular machine, not portable repository content.
+## Dependencies
 
-## Dependency direction
+```mermaid
+flowchart LR
+    App[MactivateApp] --> Runtime[MactivateRuntime]
+    App --> NotchKit[DynamicNotchKit]
+    Runtime --> Core[MactuationCore]
+    Runtime --> Hardware[MactuationHardware]
+    Hardware --> Core
+    Capture[MactuationCapture] --> Core
+    TestSupport[MactuationTestSupport] --> Core
+    TestSupport --> Capture
+    Research[MactuationResearch] --> Core
+    Research --> Capture
+    Probe[MactuationProbe] --> Core
+    Probe --> Hardware
+    Probe --> Capture
+    Probe --> Research
+```
 
-`MactivateApp` depends on `MactivateRuntime`. Runtime depends on
-`MactuationCore` and `MactuationHardware`. Hardware depends on Core.
+The app depends directly on Runtime and DynamicNotchKit. Runtime uses Core and Hardware. Capture, TestSupport, Research, and Probe do not ship with the app.
 
-`MactuationResearch` and `MactuationProbe` may depend on production packages,
-but production packages never depend on research. Capture and test-support
-products are not linked into the shipped application.
+## Repository check
 
-App production sources import only `MactivateRuntime` from this repository.
-That facade keeps hardware, calibration, and persistence details out of the UI.
-
-## File and directory limits
-
-Handwritten Swift, Python, and shell files must not exceed 300 lines. Split
-files by responsibility before adding another exception.
-
-Generated Xcode project metadata and committed data fixtures are exempt because
-splitting them would corrupt their format or usefulness. No other exceptions
-are implicit.
-
-Each tracked directory has at most 12 immediate entries. Prefer nested groups
-that express ownership over flat collections or one-file organizational
-wrappers.
-
-Run the policy check from the repository root:
+Run this from the repository root to verify the layout, file and directory limits, module boundaries, and package dependencies.
 
 ```bash
 python3 tools/maintenance/check_repository.py
 ```
-
-## Comments
-
-Readable names and focused types should explain what the code does. Comments
-are reserved for information the code cannot express:
-
-- hardware and operating-system constraints;
-- fail-closed and safety rationale;
-- calibration provenance and measured boundaries;
-- deterministic replay and data-format contracts;
-- protocol, compatibility, and toolchain requirements.
-
-Decorative section banners, implementation narration, and comments that repeat
-the next statement are removed.
-
-## Tests and evidence
-
-Tests stay with the package or app that owns the behavior. Clone-safe fixtures
-remain package resources. Machine-local capture evaluation belongs to research
-and may skip when its gitignored evidence is unavailable.
-
-Research documents record observations. The root README defines current product
-scope and supported behavior.

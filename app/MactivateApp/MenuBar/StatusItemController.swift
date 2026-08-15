@@ -79,7 +79,7 @@ final class StatusItemController: NSObject {
         actions.refreshExternalState()
         let menu = NSMenu()
         menu.addItem(item(
-            title: "Open Panel",
+            title: "Open Notch Panel",
             action: #selector(openPanel)
         ))
         menu.addItem(.separator())
@@ -101,7 +101,7 @@ final class StatusItemController: NSObject {
         menu.addItem(hoverState)
 
         let hoverToggle = item(
-            title: "Experimental Hover",
+            title: "Notch Hover",
             action: #selector(togglePanelHints)
         )
         hoverToggle.state = configuration.panelHintsEnabled ? .on : .off
@@ -116,7 +116,7 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
         menu.addItem(item(
-            title: "Settings…",
+            title: "Configuration…",
             action: #selector(openSettings),
             keyEquivalent: ","
         ))
@@ -159,17 +159,17 @@ final class StatusItemController: NSObject {
     private var hoverStatusTitle: String {
         switch snapshot.panelHint {
         case .inactive:
-            return "Experimental hover: off"
+            return "Notch Hover: off"
         case .disabled:
-            return "Experimental hover: disabled"
+            return "Notch Hover: disabled"
         case .warmingUp:
-            return "Experimental hover: warming up"
+            return "Notch Hover: warming up"
         case .available:
-            return "Experimental hover: ready"
+            return "Notch Hover: ready"
         case .tooDim:
-            return "Experimental hover: too dim"
+            return "Notch Hover: too dim"
         case .unavailable:
-            return "Experimental hover: unavailable"
+            return "Notch Hover: unavailable"
         }
     }
 

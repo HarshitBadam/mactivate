@@ -3,7 +3,7 @@
 exact pipeline (imported, not reimplemented). Companion to the Swift
 TapClassifier: this is the ground-truth side of its parity fixtures.
 
-Rule (docs/probe-results/2026-07-24-mac14-2-discovery.md, left-calibrated):
+Rule (docs/validation/product-validation.md, left-calibrated):
   accept a group iff it has <= 3 members and its FIRST member passes its
   amplitude-selected tier:
     comfort (peak < 0.25 g): z25 > 0 and lat25 < 0.25 mg*s

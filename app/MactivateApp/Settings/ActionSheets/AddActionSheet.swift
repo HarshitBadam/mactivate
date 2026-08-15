@@ -16,7 +16,7 @@ struct AddActionSheet: View {
             VStack(alignment: .leading, spacing: SettingsMetrics.compact) {
                 Text("New Action")
                     .font(.title2.bold())
-                Text("Choose one focused response for a tap or notch slot.")
+                Text("Choose one focused response for a tap or Notch Panel slot.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
