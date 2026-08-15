@@ -31,7 +31,7 @@ cask "mactivate" do
 
   url "https://github.com/HarshitBadam/mactivate/releases/download/v#{version}/Mactivate-#{version}.dmg"
   name "Mactivate"
-  desc "Turn MacBook sensors and physical gestures into macOS controls"
+  desc "Turn built-in sensors and physical gestures into system controls"
   homepage "https://github.com/HarshitBadam/mactivate"
 
   livecheck do
