@@ -56,9 +56,9 @@ final class AppState: ObservableObject {
         case .available(let rate):
             let readiness = tapCalibrationProfile?.isValid == true ?
                 "Palm taps ready" : "Sensor connected"
-            return "\(readiness) · \(Int(rate.rounded())) Hz"
+            return "\(readiness) at \(Int(rate.rounded())) Hz"
         case .unavailable(let reason):
-            return "Palm taps unavailable · \(reason)"
+            return "Palm taps unavailable: \(reason)"
         }
     }
 
@@ -69,7 +69,7 @@ final class AppState: ObservableObject {
                 intensity: target.intensity
             )
             return "Capturing \(target.side.rawValue) " +
-                "\(target.intensity.rawValue) taps · \(count)/5 valid"
+                "\(target.intensity.rawValue) taps (\(count)/5 valid)"
         }
         guard let profile = tapCalibrationProfile else {
             return "Calibration needed"
@@ -82,7 +82,7 @@ final class AppState: ObservableObject {
         if let target = tapRegionCalibrationTarget {
             let count = tapRegionCalibrationDraft.sampleCount(target: target)
             return "Capturing \(target.side.rawValue) " +
-                "\(target.pattern.rawValue) taps · \(count)/5"
+                "\(target.pattern.rawValue) taps (\(count)/5)"
         }
         guard tapCalibrationProfile?.isValid == true else {
             return "Calibrate tap acceptance first"
@@ -117,7 +117,7 @@ final class AppState: ObservableObject {
                 ? "Left/right detection ready"
                 : tapRegionCalibrationStatus
         case .unavailable(let reason):
-            return "Left/right detection unavailable · \(reason)"
+            return "Left/right detection unavailable: \(reason)"
         }
     }
 
@@ -134,7 +134,7 @@ final class AppState: ObservableObject {
         case .tooDim:
             return "Hover unavailable in dim light"
         case .unavailable(let reason):
-            return "Experimental hover unavailable · \(reason)"
+            return "Experimental hover unavailable: \(reason)"
         }
     }
 
@@ -183,6 +183,51 @@ final class AppState: ObservableObject {
         }
     }
 
+    var tapFeedbackSummary: String {
+        guard let feedback = lastTapFeedback else { return "No tap detected yet" }
+        switch feedback.outcome {
+        case .candidate:
+            return "Tap detected"
+        case .rejected:
+            return "Tap ignored"
+        case .acceptedNonActionable(let pattern):
+            return "\(Self.tapPatternName(pattern).capitalized) tap recognized"
+        case .acceptedUnmapped(let gesture):
+            return "\(gesture.side.rawValue.capitalized) " +
+                "\(gesture.pattern.rawValue) tap recognized"
+        case .duplicate(let gesture):
+            return "Repeated \(gesture.side.rawValue) " +
+                "\(gesture.pattern.rawValue) tap ignored"
+        case .spatialUnavailable(let pattern, _):
+            return "\(pattern.rawValue.capitalized) tap recognized"
+        case .dispatched(let gesture, _):
+            return "\(gesture.side.rawValue.capitalized) " +
+                "\(gesture.pattern.rawValue) tap triggered an action"
+        }
+    }
+
+    var tapFeedbackSummaryDetail: String {
+        guard let feedback = lastTapFeedback else {
+            return "Tap a palm rest to see the latest decision."
+        }
+        switch feedback.outcome {
+        case .candidate:
+            return "Waiting briefly to determine the tap count."
+        case .rejected(let reason):
+            return reason.guidance
+        case .acceptedNonActionable:
+            return "The tap was recognized; no action was expected."
+        case .acceptedUnmapped:
+            return "No action is assigned to this gesture."
+        case .duplicate:
+            return "This gesture had already been handled."
+        case .spatialUnavailable:
+            return "Left/right detection was unavailable for this gesture."
+        case .dispatched:
+            return "The assigned action ran successfully."
+        }
+    }
+
     var tapRegionFeedbackDescription: String {
         guard let feedback = lastTapFeedback else { return "none" }
         let prediction = feedback.regionPrediction?.rawValue ?? "not evaluated"
@@ -193,6 +238,14 @@ final class AppState: ObservableObject {
         let reason = feedback.regionReason?.rawValue ?? "none"
         return "side=\(prediction), count=\(feedback.memberCount), " +
             "feature=\(feature), model=\(version), reason=\(reason)"
+    }
+
+    private static func tapPatternName(_ pattern: TapPattern) -> String {
+        switch pattern {
+        case .single: return "single"
+        case .double: return "double"
+        case .triple: return "triple"
+        }
     }
 
     private static func hardwareModel() -> String? {

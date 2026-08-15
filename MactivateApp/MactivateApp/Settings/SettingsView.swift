@@ -414,36 +414,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: SettingsMetrics.cardInset) {
             SettingsPageHeader(
                 title: "Diagnostics",
-                subtitle: "Live sensor readiness and the latest tap decision.",
-                symbol: "waveform.path.ecg",
-                accessory: AnyView(
-                    Button {
-                        copyDiagnostics()
-                    } label: {
-                        Label("Copy Report", systemImage: "doc.on.doc")
-                    }
-                )
+                subtitle: "Review the latest tap decision and runtime report.",
+                symbol: "waveform.path.ecg"
             )
-            HStack(spacing: SettingsMetrics.fieldGap) {
-                statusCard(
-                    title: "Palm sensor",
-                    value: state.tapStatus,
-                    symbol: "hand.tap",
-                    ready: tapSensorReady
-                )
-                statusCard(
-                    title: "Tap acceptance",
-                    value: state.tapCalibrationStatus,
-                    symbol: "scope",
-                    ready: state.tapCalibrationProfile?.isValid == true
-                )
-                statusCard(
-                    title: "Left/right",
-                    value: state.tapRegionStatus,
-                    symbol: "arrow.left.and.right",
-                    ready: state.spatialGesturesReady
-                )
-            }
             if let feedback = state.lastTapFeedback {
                 SettingsCard(
                     "Latest tap decision",
@@ -454,19 +427,26 @@ struct SettingsView: View {
                         alignment: .leading,
                         spacing: SettingsMetrics.controlGap
                     ) {
-                        Text(state.tapFeedbackDescription)
+                        Text(state.tapFeedbackSummary)
                             .font(.headline)
-                        Text("Peak \(feedback.features.peakG, format: .number.precision(.fractionLength(3))) g · \(feedback.memberCount) candidate\(feedback.memberCount == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(state.tapRegionFeedbackDescription)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                        if case .rejected(let reason) = feedback.outcome {
-                            Label(reason.guidance, systemImage: "lightbulb")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
+                        if case .rejected = feedback.outcome {
+                            Label(
+                                state.tapFeedbackSummaryDetail,
+                                systemImage: "lightbulb"
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                        } else {
+                            Text(state.tapFeedbackSummaryDetail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
+                        HStack(spacing: SettingsMetrics.fieldGap) {
+                            Text("Peak \(feedback.features.peakG, format: .number.precision(.fractionLength(3))) g")
+                            Text("\(feedback.memberCount) detected impact\(feedback.memberCount == 1 ? "" : "s")")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -499,38 +479,6 @@ struct SettingsView: View {
         .padding(.bottom, SettingsMetrics.pageInset)
     }
 
-    private func statusCard(
-        title: String,
-        value: String,
-        symbol: String,
-        ready: Bool
-    ) -> some View {
-        HStack(spacing: SettingsMetrics.controlGap) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(ready ? Color.secondary : Color.orange)
-            VStack(
-                alignment: .leading,
-                spacing: SettingsMetrics.compact
-            ) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(SettingsMetrics.fieldGap)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            Color(nsColor: .controlBackgroundColor),
-            in: RoundedRectangle(cornerRadius: SettingsMetrics.cardRadius)
-        )
-        .accessibilityElement(children: .combine)
-    }
-
     private func calibrationStatusRow(
         title: String,
         value: String,
@@ -561,13 +509,6 @@ struct SettingsView: View {
             state.diagnosticText,
             forType: .string
         )
-    }
-
-    private var tapSensorReady: Bool {
-        if case .available = state.snapshot.tap {
-            return true
-        }
-        return false
     }
 }
 
@@ -696,18 +637,16 @@ private struct CalibrationWorkspace: View {
             subtitle: "Two user-paced steps make tap detection reliable.",
             symbol: "scope"
         ) {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                VStack(
-                    alignment: .leading,
-                    spacing: SettingsMetrics.sectionGap
-                ) {
-                    CalibrationView(state: state, actions: actions)
-                    Divider()
-                    RegionCalibrationView(state: state, actions: actions)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
                 }
-                .padding(.top, SettingsMetrics.cardInset)
             } label: {
                 HStack(spacing: SettingsMetrics.controlGap) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 16)
                     SettingsStatusBadge(
                         title: state.tapCalibrationProfile?.isValid == true
                             ? "Acceptance ready" : "Step 1 needed",
@@ -723,7 +662,22 @@ private struct CalibrationWorkspace: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(.leading, SettingsMetrics.fieldGap)
+                .frame(minHeight: SettingsMetrics.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+
+            if isExpanded {
+                VStack(
+                    alignment: .leading,
+                    spacing: SettingsMetrics.sectionGap
+                ) {
+                    CalibrationView(state: state, actions: actions)
+                    Divider()
+                    RegionCalibrationView(state: state, actions: actions)
+                }
+                .transition(.opacity)
             }
         }
     }
@@ -768,7 +722,7 @@ private struct CalibrationView: View {
             if let feedback = state.lastTapFeedback,
                feedback.outcome == .candidate {
                 Label(
-                    "Impact detected — resolving the tap count.",
+                    "Determining the tap count.",
                     systemImage: "waveform"
                 )
                 .font(.callout)
@@ -795,6 +749,7 @@ private struct CalibrationView: View {
                         !isComplete || state.tapCalibrationTarget != nil
                     )
             }
+            .padding(.horizontal, SettingsMetrics.fieldGap)
         }
     }
 
@@ -808,7 +763,7 @@ private struct CalibrationView: View {
         return HStack(spacing: SettingsMetrics.controlGap) {
             Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(isDone ? .primary : .secondary)
-            Text("\(target.side.rawValue.capitalized) · \(target.intensity.rawValue.capitalized)")
+            Text("\(target.side.rawValue.capitalized) \(target.intensity.rawValue.capitalized)")
             Spacer()
             Text(
                 "\(count)/\(TapCalibrationDraft.requiredSamplesPerTarget)"
@@ -948,8 +903,8 @@ private struct RegionCalibrationView: View {
                         )
                         .font(.title3.bold())
                         Text(
-                            "\(target.pattern.rawValue.capitalized) tap · " +
-                                "perform \(target.pattern.memberCount) taps"
+                            "\(target.pattern.rawValue.capitalized) tap " +
+                                "(\(target.pattern.memberCount) taps)"
                         )
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -1000,15 +955,16 @@ private struct RegionCalibrationView: View {
                     )
                 }
                 Spacer()
-                Button(
-                    "Save Step 2",
-                    action: actions.saveRegionCalibration
-                )
-                .disabled(
-                    !state.tapRegionCalibrationDraft.isComplete ||
-                        state.tapRegionCalibrationTarget != nil
-                )
+                if state.tapRegionCalibrationError != nil,
+                   state.tapRegionCalibrationDraft.isComplete,
+                   state.tapRegionCalibrationTarget == nil {
+                    Button(
+                        "Retry Save",
+                        action: actions.saveRegionCalibration
+                    )
+                }
             }
+            .padding(.horizontal, SettingsMetrics.fieldGap)
         }
     }
 
@@ -1022,8 +978,6 @@ private struct RegionCalibrationView: View {
             Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(isDone ? .primary : .secondary)
             Text("\(target.side.rawValue.capitalized) palm rest")
-            Text("·")
-                .foregroundStyle(.tertiary)
             Text("\(target.pattern.rawValue.capitalized) tap")
                 .foregroundStyle(.secondary)
             Spacer()

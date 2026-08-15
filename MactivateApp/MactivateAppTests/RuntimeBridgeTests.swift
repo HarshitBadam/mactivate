@@ -106,7 +106,7 @@ final class RuntimeBridgeTests: XCTestCase {
         runtime.outputHandler?(.statusChanged(snapshot))
 
         XCTAssertEqual(coordinator.state.snapshot, snapshot)
-        XCTAssertEqual(coordinator.state.tapStatus, "Sensor connected · 796 Hz")
+        XCTAssertEqual(coordinator.state.tapStatus, "Sensor connected at 796 Hz")
         XCTAssertEqual(
             coordinator.state.panelHintStatus,
             "Hover unavailable in dim light"

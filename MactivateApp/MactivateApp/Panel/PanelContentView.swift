@@ -13,10 +13,12 @@ struct PanelContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             quickActions
-            statusFooter
+            if state.actionError != nil || state.recentWarning != nil {
+                statusFooter
+            }
         }
         .padding(.horizontal, 2)
-        .frame(width: 358, height: 224, alignment: .top)
+        .frame(width: 358, alignment: .top)
         .foregroundStyle(.white)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Mactivate quick actions")
@@ -98,11 +100,6 @@ struct PanelContentView: View {
 
     private var statusFooter: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(state.panelHintStatus, systemImage: "sun.min")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.58))
-                .lineLimit(1)
-
             if let error = state.actionError {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
