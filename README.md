@@ -43,3 +43,7 @@ Run the shared `MactivateApp` scheme. Package and test commands are documented i
 - [docs/](docs/): Architecture and measured product validation
 
 Start with the [system overview](docs/architecture/system-overview.md) for the runtime flow or [product validation](docs/validation/product-validation.md) for the evidence behind the interaction.
+
+## License
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
