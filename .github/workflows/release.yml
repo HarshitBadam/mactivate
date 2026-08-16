@@ -1,15 +1,18 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New semantic version (for example, 1.0.1)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -19,27 +22,95 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Validate new release
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          version="${VERSION_INPUT#v}"
+          tag="v$version"
+
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "Releases must be dispatched from $DEFAULT_BRANCH, not $GITHUB_REF." >&2
+            exit 1
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+            echo "Version must be semantic, for example 1.0.1." >&2
+            exit 1
+          fi
+
+          project_version="$(
+            xcodebuild \
+              -project app/MactivateApp.xcodeproj \
+              -scheme MactivateApp \
+              -configuration Release \
+              -showBuildSettings |
+              awk '$1 == "MARKETING_VERSION" && $2 == "=" { print $3; exit }'
+          )"
+
+          if [[ "$version" != "$project_version" ]]; then
+            echo "Requested version $version does not match MARKETING_VERSION $project_version." >&2
+            exit 1
+          fi
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; choose a new version." >&2
+            exit 1
+          fi
+
+          tag_exists=0
+          if git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+            tag_commit="$(git rev-parse "$tag^{}")"
+            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+              echo "Tag $tag already exists at $tag_commit; tags are immutable." >&2
+              exit 1
+            fi
+            tag_exists=1
+          fi
+
+          {
+            echo "RELEASE_VERSION=$version"
+            echo "RELEASE_TAG=$tag"
+            echo "RELEASE_TAG_EXISTS=$tag_exists"
+          } >> "$GITHUB_ENV"
 
       - name: Build disk image
-        run: tools/release/build_dmg.sh "${GITHUB_REF_NAME#v}"
+        run: tools/release/build_dmg.sh "$RELEASE_VERSION"
 
       - name: Render Homebrew cask
         run: |
-          version="${GITHUB_REF_NAME#v}"
           tools/release/render_cask.sh \
-            "$version" \
-            "build/release/dist/Mactivate-$version.dmg" \
+            "$RELEASE_VERSION" \
+            "build/release/dist/Mactivate-$RELEASE_VERSION.dmg" \
             "build/release/dist/mactivate.rb"
+
+      - name: Create release tag
+        run: |
+          if [[ "$RELEASE_TAG_EXISTS" == "1" ]]; then
+            echo "Tag $RELEASE_TAG already points to $GITHUB_SHA; reusing it."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" "$GITHUB_SHA" --message "Mactivate $RELEASE_VERSION"
+          git push origin "refs/tags/$RELEASE_TAG"
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" \
-            "build/release/dist/Mactivate-$version.dmg" \
-            "build/release/dist/Mactivate-$version.dmg.sha256" \
+          gh release create "$RELEASE_TAG" \
+            "build/release/dist/Mactivate-$RELEASE_VERSION.dmg" \
+            "build/release/dist/Mactivate-$RELEASE_VERSION.dmg.sha256" \
             "build/release/dist/mactivate.rb" \
             --generate-notes \
-            --title "Mactivate $version" \
+            --title "Mactivate $RELEASE_VERSION" \
             --verify-tag
