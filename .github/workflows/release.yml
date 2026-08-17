@@ -145,4 +145,14 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+        run: |
+          notes="docs/release/notes/$RELEASE_VERSION.md"
+          if [[ -f "$notes" ]]; then
+            gh release edit \
+              "$RELEASE_TAG" \
+              --notes-file "$notes" \
+              --draft=false \
+              --latest
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi
