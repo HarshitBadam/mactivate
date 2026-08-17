@@ -27,7 +27,7 @@ final class NotchSurfaceController: NotchSurfaceControlling {
         )
         let compactTrailing = AnyView(EmptyView())
         let surface = Surface(
-            hoverBehavior: [.keepVisible, .hapticFeedback, .increaseShadow],
+            hoverBehavior: [.hapticFeedback, .increaseShadow],
             style: .auto,
             expanded: { content },
             compactLeading: { compactLeading },

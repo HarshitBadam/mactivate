@@ -11,30 +11,31 @@ struct DiagnosticsPane: View {
                 subtitle: "Review the latest tap decision and runtime report.",
                 symbol: "waveform.path.ecg"
             )
-            if let feedback = state.lastTapFeedback {
-                SettingsCard(
-                    "Latest tap decision",
-                    subtitle: "Updates after every detected impact group.",
-                    symbol: "waveform"
+            SettingsCard(
+                "Latest tap decision",
+                subtitle: "Updates after every detected impact group.",
+                symbol: "waveform"
+            ) {
+                VStack(
+                    alignment: .leading,
+                    spacing: SettingsMetrics.controlGap
                 ) {
-                    VStack(
-                        alignment: .leading,
-                        spacing: SettingsMetrics.controlGap
-                    ) {
-                        Text(state.tapFeedbackSummary)
-                            .font(.headline)
-                        if case .rejected = feedback.outcome {
-                            Label(
-                                state.tapFeedbackSummaryDetail,
-                                systemImage: "lightbulb"
-                            )
+                    Text(state.tapFeedbackSummary)
+                        .font(.headline)
+                    if let feedback = state.lastTapFeedback,
+                       case .rejected = feedback.outcome {
+                        Label(
+                            state.tapFeedbackSummaryDetail,
+                            systemImage: "lightbulb"
+                        )
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    } else {
+                        Text(state.tapFeedbackSummaryDetail)
                             .font(.callout)
-                            .foregroundStyle(.orange)
-                        } else {
-                            Text(state.tapFeedbackSummaryDetail)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
+                            .foregroundStyle(.secondary)
+                    }
+                    if let feedback = state.lastTapFeedback {
                         HStack(spacing: SettingsMetrics.fieldGap) {
                             Text("Peak \(feedback.features.peakG, format: .number.precision(.fractionLength(3))) g")
                             Text("\(feedback.memberCount) detected impact\(feedback.memberCount == 1 ? "" : "s")")
@@ -42,8 +43,8 @@ struct DiagnosticsPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             ScrollView {
                 Text(state.diagnosticText)

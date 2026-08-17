@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
         window.minSize = NSSize(width: 900, height: 650)
         window.setContentSize(NSSize(width: 960, height: 720))
         window.isReleasedWhenClosed = false
+        window.collectionBehavior.insert(.moveToActiveSpace)
         window.center()
         super.init(window: window)
     }
@@ -32,8 +33,10 @@ final class SettingsWindowController: NSWindowController {
     }
 
     func present() {
+        guard let window else { return }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 }

@@ -64,34 +64,6 @@ struct SettingsView: View {
                         symbol: "hand.tap.fill"
                     ) {
                         spatialGestureGrid
-                        HStack(spacing: SettingsMetrics.controlGap) {
-                            SettingsStatusBadge(
-                                title: state.spatialGesturesReady
-                                    ? "Ready" : "Setup required",
-                                ready: state.spatialGesturesReady
-                            )
-                            Text(state.tapRegionCalibrationStatus)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Toggle(
-                                "Palm rest actions",
-                                isOn: Binding(
-                                    get: {
-                                        state.configuration
-                                            .spatialTapDispatchEnabled
-                                    },
-                                    set: actions.setSpatialTapDispatchEnabled
-                                )
-                            )
-                            .font(.caption.weight(.regular))
-                            .foregroundStyle(.secondary)
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .accessibilityIdentifier(
-                                "spatial-tap-dispatch-toggle"
-                            )
-                        }
                     }
 
                     CalibrationWorkspace(state: state, actions: actions)
@@ -127,6 +99,39 @@ struct SettingsView: View {
                     .frame(width: 144, alignment: .leading)
                 spatialGesturePicker(.rightDouble)
                 spatialGesturePicker(.rightTriple)
+            }
+            GridRow {
+                SettingsStatusBadge(
+                    title: state.spatialGesturesReady
+                        ? "Ready" : "Setup required",
+                    ready: state.spatialGesturesReady
+                )
+                .frame(width: 144, alignment: .leading)
+                HStack(spacing: SettingsMetrics.controlGap) {
+                    Text(state.tapRegionCalibrationStatus)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Toggle(
+                        isOn: Binding(
+                            get: {
+                                state.configuration.spatialTapDispatchEnabled
+                            },
+                            set: actions.setSpatialTapDispatchEnabled
+                        )
+                    ) {
+                        Text("Palm rest actions")
+                            .font(.caption.weight(.regular))
+                            .foregroundStyle(.secondary)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .tint(.blue)
+                    .accessibilityIdentifier(
+                        "spatial-tap-dispatch-toggle"
+                    )
+                }
+                .gridCellColumns(2)
             }
         }
     }
