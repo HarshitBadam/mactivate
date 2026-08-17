@@ -12,12 +12,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  publish:
+    name: Publish release
     runs-on: macos-26
+    timeout-minutes: 30
 
     steps:
       - name: Create release token
@@ -106,42 +108,6 @@ jobs:
             "build/release/dist/mactivate.rb" \
             --clobber
 
-      - name: Prepare Homebrew tap update
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          TAP_REPOSITORY: HarshitBadam/homebrew-mactivate
-        run: |
-          tap_dir="$RUNNER_TEMP/homebrew-mactivate"
-          branch="mactivate-v$RELEASE_VERSION"
-          gh repo clone "$TAP_REPOSITORY" "$tap_dir"
-
-          if git -C "$tap_dir" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-            git -C "$tap_dir" fetch origin "$branch"
-            git -C "$tap_dir" checkout -B "$branch" FETCH_HEAD
-          else
-            git -C "$tap_dir" checkout -b "$branch"
-          fi
-
-          mkdir -p "$tap_dir/Casks"
-          cp build/release/dist/mactivate.rb "$tap_dir/Casks/mactivate.rb"
-          git -C "$tap_dir" config user.name "mactivate-release[bot]"
-          git -C "$tap_dir" config user.email "mactivate-release[bot]@users.noreply.github.com"
-          git -C "$tap_dir" add Casks/mactivate.rb
-
-          if ! git -C "$tap_dir" diff --cached --quiet; then
-            git -C "$tap_dir" commit -m "chore: update Mactivate to $RELEASE_VERSION"
-            git -C "$tap_dir" push -u origin "$branch"
-          fi
-
-          if [[ -z "$(gh pr list --repo "$TAP_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number')" ]]; then
-            gh pr create \
-              --repo "$TAP_REPOSITORY" \
-              --base main \
-              --head "$branch" \
-              --title "chore: update Mactivate to $RELEASE_VERSION" \
-              --body "Updates the cask for Mactivate $RELEASE_VERSION."
-          fi
-
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -156,3 +122,146 @@ jobs:
           else
             gh release edit "$RELEASE_TAG" --draft=false --latest
           fi
+
+  homebrew:
+    name: Publish Homebrew cask
+    needs: publish
+    runs-on: macos-26
+    timeout-minutes: 15
+
+    steps:
+      - name: Create release token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            mactivate
+            homebrew-mactivate
+
+      - name: Validate published artifacts
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          version="${VERSION_INPUT#v}"
+          tag="v$version"
+          release_dir="$RUNNER_TEMP/mactivate-release"
+          cask="$release_dir/mactivate.rb"
+          checksum="$release_dir/Mactivate-$version.dmg.sha256"
+          dmg="$release_dir/Mactivate-$version.dmg"
+          mkdir -p "$release_dir"
+
+          gh release download "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "mactivate.rb" \
+            --pattern "Mactivate-$version.dmg.sha256" \
+            --dir "$release_dir"
+          curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --output "$dmg" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Mactivate-$version.dmg"
+
+          cask_version="$(awk '$1 == "version" { gsub(/"/, "", $2); print $2; exit }' "$cask")"
+          cask_sha="$(awk '$1 == "sha256" { gsub(/"/, "", $2); print $2; exit }' "$cask")"
+          release_sha="$(awk '{ print $1; exit }' "$checksum")"
+          downloaded_sha="$(shasum -a 256 "$dmg" | awk '{ print $1 }')"
+
+          if [[ "$cask_version" != "$version" ]]; then
+            echo "Cask version $cask_version does not match release $version." >&2
+            exit 1
+          fi
+
+          if [[ "$cask_sha" != "$release_sha" || "$cask_sha" != "$downloaded_sha" ]]; then
+            echo "Published DMG, checksum, and cask SHA-256 values do not match." >&2
+            exit 1
+          fi
+
+          brew style --cask "$cask"
+          brew install --cask --no-quarantine "$cask"
+          test -d /Applications/Mactivate.app
+          brew uninstall --cask mactivate
+
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAP_REPOSITORY: HarshitBadam/homebrew-mactivate
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          version="${VERSION_INPUT#v}"
+          branch="mactivate-v$version"
+          gh auth setup-git
+          brew tap HarshitBadam/mactivate
+          tap_dir="$(brew --repository HarshitBadam/mactivate)"
+
+          current_version="$(
+            awk '$1 == "version" { gsub(/"/, "", $2); print $2; exit }' \
+              "$tap_dir/Casks/mactivate.rb"
+          )"
+
+          if [[ "$current_version" == "$version" ]]; then
+            echo "Homebrew already serves Mactivate $version."
+            exit 0
+          fi
+
+          ruby -rrubygems -e '
+            current = Gem::Version.new(ARGV.fetch(0))
+            release = Gem::Version.new(ARGV.fetch(1))
+            abort "Refusing to replace #{current} with #{release}." unless release > current
+          ' "$current_version" "$version"
+
+          if git -C "$tap_dir" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git -C "$tap_dir" fetch origin "$branch"
+            git -C "$tap_dir" checkout -B "$branch" FETCH_HEAD
+            git -C "$tap_dir" merge --no-edit origin/main
+          else
+            git -C "$tap_dir" checkout -b "$branch"
+          fi
+
+          cp "$RUNNER_TEMP/mactivate-release/mactivate.rb" "$tap_dir/Casks/mactivate.rb"
+          brew audit --cask --online HarshitBadam/mactivate/mactivate
+          git -C "$tap_dir" config user.name "mactivate-release[bot]"
+          git -C "$tap_dir" config user.email "mactivate-release[bot]@users.noreply.github.com"
+          git -C "$tap_dir" add Casks/mactivate.rb
+
+          if ! git -C "$tap_dir" diff --cached --quiet; then
+            git -C "$tap_dir" commit -m "chore: update Mactivate to $version"
+            git -C "$tap_dir" push -u origin "$branch"
+          fi
+
+          pr_number="$(
+            gh pr list \
+              --repo "$TAP_REPOSITORY" \
+              --head "$branch" \
+              --state open \
+              --json number \
+              --jq '.[0].number'
+          )"
+
+          if [[ -z "$pr_number" ]]; then
+            gh pr create \
+              --repo "$TAP_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "chore: update Mactivate to $version" \
+              --body "Updates the validated cask for Mactivate $version."
+            pr_number="$(
+              gh pr list \
+                --repo "$TAP_REPOSITORY" \
+                --head "$branch" \
+                --state open \
+                --json number \
+                --jq '.[0].number'
+            )"
+          fi
+
+          head_commit="$(git -C "$tap_dir" rev-parse HEAD)"
+          gh pr merge "$pr_number" \
+            --repo "$TAP_REPOSITORY" \
+            --squash \
+            --delete-branch \
+            --match-head-commit "$head_commit"

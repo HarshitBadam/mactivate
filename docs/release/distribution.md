@@ -29,7 +29,9 @@ It performs a clean Release build, enforces an arm64 executable, verifies the ad
 
 Conventional commits on `main` maintain a release pull request through Release Please. The pull request updates `CHANGELOG.md`, `.github/release/release-please-manifest.json`, `version.txt`, and the Xcode `MARKETING_VERSION`. Merge it only after required CI checks pass.
 
-Merging the release pull request creates an immutable version tag and draft GitHub Release. The publication workflow checks out that exact tag, validates its version, builds and verifies the disk image, uploads the disk image, checksum, and generated cask, opens a Homebrew tap pull request, then publishes the GitHub Release.
+Merging the release pull request creates an immutable version tag and draft GitHub Release. The publication workflow checks out that exact tag, validates its version, builds and verifies the disk image, uploads the disk image, checksum, and generated cask, then publishes the GitHub Release.
+
+After publication, a separate job downloads the public disk image and verifies it against both published SHA-256 values. It also styles, audits, installs, and removes the generated cask. Only after every check passes does the workflow open and squash-merge the Homebrew tap pull request. The release pull request is therefore the only manual approval in the normal release path.
 
 Do not create, move, or delete release tags manually. The release-tag ruleset keeps published source and artifacts tied to one immutable commit.
 
@@ -53,6 +55,12 @@ If publication fails while the GitHub Release is still a draft, rerun it from th
 gh workflow run release.yml --ref v<version> -f version=<version>
 ```
 
+If only the Homebrew job fails after publication, rerun the failed job from the original workflow run. This preserves the published assets and repeats only downstream validation and delivery:
+
+```bash
+gh run rerun <run-id> --failed
+```
+
 ## Create the Homebrew tap
 
 The tap is a separate public repository named `HarshitBadam/homebrew-mactivate`. Create it once:
@@ -66,7 +74,7 @@ gh repo create HarshitBadam/homebrew-mactivate \
   --push
 ```
 
-Each release automatically opens a versioned pull request in the tap. Review and merge that pull request to make the new cask available to users.
+Each release automatically opens and merges a versioned pull request in the tap after the public disk image, checksum, cask audit, and installation checks pass.
 
 Users can then install directly:
 

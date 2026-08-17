@@ -6,8 +6,10 @@
   "draft": true,
   "force-tag-creation": true,
   "bootstrap-sha": "8338729e5fed8412bee3b99c21b49f4e180b45ea",
+  "last-release-sha": "8338729e5fed8412bee3b99c21b49f4e180b45ea",
   "packages": {
     ".": {
+      "release-as": "1.0.2",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
