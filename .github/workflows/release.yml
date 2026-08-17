@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "New semantic version (for example, 1.0.1)"
+        description: "Semantic version from the immutable release tag"
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -20,23 +20,34 @@ jobs:
     runs-on: macos-26
 
     steps:
+      - name: Create release token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            mactivate
+            homebrew-mactivate
+
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
-          ref: ${{ github.sha }}
+          ref: ${{ github.ref }}
+          token: ${{ steps.app-token.outputs.token }}
 
-      - name: Validate new release
+      - name: Validate release
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION_INPUT: ${{ inputs.version }}
         run: |
           version="${VERSION_INPUT#v}"
           tag="v$version"
 
-          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
-            echo "Releases must be dispatched from $DEFAULT_BRANCH, not $GITHUB_REF." >&2
+          if [[ "$GITHUB_REF" != "refs/tags/$tag" ]]; then
+            echo "Release $version must run from refs/tags/$tag." >&2
             exit 1
           fi
 
@@ -59,26 +70,20 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists; choose a new version." >&2
+          if [[ "$(gh release view "$tag" --json isDraft --jq '.isDraft')" != "true" ]]; then
+            echo "Release $tag must exist as a draft before publication." >&2
             exit 1
           fi
 
-          tag_exists=0
-          if git ls-remote --exit-code --refs origin "refs/tags/$tag" >/dev/null 2>&1; then
-            git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag"
-            tag_commit="$(git rev-parse "$tag^{}")"
-            if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
-              echo "Tag $tag already exists at $tag_commit; tags are immutable." >&2
-              exit 1
-            fi
-            tag_exists=1
+          tag_commit="$(git rev-parse "$tag^{}")"
+          if [[ "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "Tag $tag does not match the checked-out commit." >&2
+            exit 1
           fi
 
           {
             echo "RELEASE_VERSION=$version"
             echo "RELEASE_TAG=$tag"
-            echo "RELEASE_TAG_EXISTS=$tag_exists"
           } >> "$GITHUB_ENV"
 
       - name: Build disk image
@@ -91,26 +96,53 @@ jobs:
             "build/release/dist/Mactivate-$RELEASE_VERSION.dmg" \
             "build/release/dist/mactivate.rb"
 
-      - name: Create release tag
-        run: |
-          if [[ "$RELEASE_TAG_EXISTS" == "1" ]]; then
-            echo "Tag $RELEASE_TAG already points to $GITHUB_SHA; reusing it."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate "$RELEASE_TAG" "$GITHUB_SHA" --message "Mactivate $RELEASE_VERSION"
-          git push origin "refs/tags/$RELEASE_TAG"
-
-      - name: Publish GitHub release
+      - name: Upload release assets
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh release create "$RELEASE_TAG" \
+          gh release upload "$RELEASE_TAG" \
             "build/release/dist/Mactivate-$RELEASE_VERSION.dmg" \
             "build/release/dist/Mactivate-$RELEASE_VERSION.dmg.sha256" \
             "build/release/dist/mactivate.rb" \
-            --generate-notes \
-            --title "Mactivate $RELEASE_VERSION" \
-            --verify-tag
+            --clobber
+
+      - name: Prepare Homebrew tap update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAP_REPOSITORY: HarshitBadam/homebrew-mactivate
+        run: |
+          tap_dir="$RUNNER_TEMP/homebrew-mactivate"
+          branch="mactivate-v$RELEASE_VERSION"
+          gh repo clone "$TAP_REPOSITORY" "$tap_dir"
+
+          if git -C "$tap_dir" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git -C "$tap_dir" fetch origin "$branch"
+            git -C "$tap_dir" checkout -B "$branch" FETCH_HEAD
+          else
+            git -C "$tap_dir" checkout -b "$branch"
+          fi
+
+          mkdir -p "$tap_dir/Casks"
+          cp build/release/dist/mactivate.rb "$tap_dir/Casks/mactivate.rb"
+          git -C "$tap_dir" config user.name "mactivate-release[bot]"
+          git -C "$tap_dir" config user.email "mactivate-release[bot]@users.noreply.github.com"
+          git -C "$tap_dir" add Casks/mactivate.rb
+
+          if ! git -C "$tap_dir" diff --cached --quiet; then
+            git -C "$tap_dir" commit -m "chore: update Mactivate to $RELEASE_VERSION"
+            git -C "$tap_dir" push -u origin "$branch"
+          fi
+
+          if [[ -z "$(gh pr list --repo "$TAP_REPOSITORY" --head "$branch" --state open --json number --jq '.[0].number')" ]]; then
+            gh pr create \
+              --repo "$TAP_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "chore: update Mactivate to $RELEASE_VERSION" \
+              --body "Updates the cask for Mactivate $RELEASE_VERSION."
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

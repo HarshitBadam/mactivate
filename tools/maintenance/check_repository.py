@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -14,6 +15,7 @@ SOURCE_SUFFIXES = {".py", ".sh", ".swift"}
 EXPECTED_ROOT_ITEMS = {
     ".github",
     ".gitignore",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md",
     "app",
@@ -21,6 +23,7 @@ EXPECTED_ROOT_ITEMS = {
     "packages",
     "research",
     "tools",
+    "version.txt",
 }
 
 
@@ -200,6 +203,24 @@ def dependency_manifest_errors(root: Path) -> list[str]:
     return errors
 
 
+def release_version_errors(root: Path) -> list[str]:
+    version = (root / "version.txt").read_text(encoding="utf-8").strip()
+    errors: list[str] = []
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?", version):
+        errors.append(f"version.txt: invalid semantic version {version!r}")
+
+    project = (
+        root / "app/MactivateApp.xcodeproj/project.pbxproj"
+    ).read_text(encoding="utf-8")
+    project_versions = set(re.findall(r"MARKETING_VERSION = ([^;]+);", project))
+    if project_versions != {version}:
+        values = ", ".join(sorted(project_versions)) or "none"
+        errors.append(
+            f"MARKETING_VERSION values ({values}) do not match version.txt {version}"
+        )
+    return errors
+
+
 def main() -> int:
     root = repository_root()
     paths = tracked_paths(root)
@@ -209,6 +230,7 @@ def main() -> int:
         ("source line limits", line_limit_errors(root, paths)),
         ("module boundaries", boundary_errors(root, paths)),
         ("dependency manifests", dependency_manifest_errors(root)),
+        ("release version", release_version_errors(root)),
     ]
 
     failures = False

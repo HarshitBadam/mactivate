@@ -10,30 +10,48 @@ Users should try to open Mactivate once, then approve it under **System Settings
 
 ## Build locally
 
-The Xcode project's `MARKETING_VERSION` is the release source of truth.
+`version.txt` and the Xcode project's `MARKETING_VERSION` are kept in sync by the release pull request and validated before packaging.
 
 ```bash
-tools/release/build_dmg.sh 1.0.1
+tools/release/build_dmg.sh <version>
 ```
 
 The script creates these ignored artifacts:
 
 ```text
-build/release/dist/Mactivate-1.0.1.dmg
-build/release/dist/Mactivate-1.0.1.dmg.sha256
+build/release/dist/Mactivate-<version>.dmg
+build/release/dist/Mactivate-<version>.dmg.sha256
 ```
 
 It performs a clean Release build, enforces an arm64 executable, verifies the ad-hoc signature, and creates a drag-to-Applications disk image.
 
-## Publish a GitHub release
+## Release automation
 
-After tests pass and the release commit is on `main`, dispatch the release workflow with a new version that matches `MARKETING_VERSION`.
+Conventional commits on `main` maintain a release pull request through Release Please. The pull request updates `CHANGELOG.md`, `.github/release/release-please-manifest.json`, `version.txt`, and the Xcode `MARKETING_VERSION`. Merge it only after required CI checks pass.
+
+Merging the release pull request creates an immutable version tag and draft GitHub Release. The publication workflow checks out that exact tag, validates its version, builds and verifies the disk image, uploads the disk image, checksum, and generated cask, opens a Homebrew tap pull request, then publishes the GitHub Release.
+
+Do not create, move, or delete release tags manually. The release-tag ruleset keeps published source and artifacts tied to one immutable commit.
+
+### Automation credentials
+
+Create a GitHub App installed only on `HarshitBadam/mactivate` and `HarshitBadam/homebrew-mactivate` with these repository permissions:
+
+- Actions: read and write
+- Contents: read and write
+- Pull requests: read and write
+
+Store its application ID as the `RELEASE_APP_ID` Actions secret and its private key as `RELEASE_APP_PRIVATE_KEY`. The short-lived installation token lets release pull requests trigger CI and lets publication open the cross-repository Homebrew pull request without a personal access token.
+
+Protect `main` with pull requests and require the `Repository policy`, `Swift packages`, and `macOS application` checks. For a solo-maintained repository, required approvals can remain at zero while the checks stay mandatory.
+
+### Recovery
+
+If publication fails while the GitHub Release is still a draft, rerun it from the existing immutable tag:
 
 ```bash
-gh workflow run release.yml --ref main -f version=1.0.1
+gh workflow run release.yml --ref v<version> -f version=<version>
 ```
-
-Do not create or move release tags manually. The workflow rejects an existing release or a tag that points to another commit, builds from the exact dispatched `main` commit on an Apple Silicon `macos-26` runner, then creates the annotated tag without force and publishes the disk image, checksum, and generated `mactivate.rb` cask. The repository's release-tag ruleset blocks updates and deletions of `v*` tags after creation.
 
 ## Create the Homebrew tap
 
@@ -48,20 +66,7 @@ gh repo create HarshitBadam/homebrew-mactivate \
   --push
 ```
 
-For each release, download its generated cask into the tap, then review and publish it:
-
-```bash
-tap="$(brew --repository HarshitBadam/mactivate)"
-mkdir -p "$tap/Casks"
-gh release download v1.0.1 \
-  --repo HarshitBadam/mactivate \
-  --pattern mactivate.rb \
-  --clobber \
-  --dir "$tap/Casks"
-git -C "$tap" add Casks/mactivate.rb
-git -C "$tap" commit -m "Update Mactivate to 1.0.1"
-git -C "$tap" push
-```
+Each release automatically opens a versioned pull request in the tap. Review and merge that pull request to make the new cask available to users.
 
 Users can then install directly:
 

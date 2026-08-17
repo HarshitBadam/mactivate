@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/app/MactivateApp.xcodeproj"
 SCHEME="MactivateApp"
+VERSION_FILE="$ROOT/version.txt"
 BUILD_ROOT="${BUILD_ROOT:-$ROOT/build/release}"
 DERIVED_DATA="$BUILD_ROOT/DerivedData"
 STAGING="$BUILD_ROOT/staging"
@@ -18,9 +19,15 @@ project_version="$(
         -showBuildSettings |
         awk '$1 == "MARKETING_VERSION" && $2 == "=" { print $3; exit }'
 )"
+managed_version="$(tr -d '[:space:]' < "$VERSION_FILE")"
 
-version="${1:-$project_version}"
+version="${1:-$managed_version}"
 version="${version#v}"
+
+if [[ "$managed_version" != "$project_version" ]]; then
+    echo "version.txt $managed_version does not match MARKETING_VERSION $project_version." >&2
+    exit 1
+fi
 
 if [[ -z "$project_version" ]]; then
     echo "Could not read MARKETING_VERSION from the Xcode project." >&2
