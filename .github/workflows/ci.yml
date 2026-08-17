@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    name: Repository policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Validate repository
+        run: python3 tools/maintenance/check_repository.py
+
+  packages:
+    name: Swift packages
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Test core
+        run: swift test --package-path packages/core
+
+      - name: Test runtime
+        run: swift test --package-path packages/runtime
+
+      - name: Test research analysis
+        run: swift test --package-path research/analysis
+
+      - name: Build research probe
+        run: swift build --package-path research/probe
+
+  application:
+    name: macOS application
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Test application
+        run: |
+          mkdir -p build/ci
+          xcodebuild \
+            -project app/MactivateApp.xcodeproj \
+            -scheme MactivateApp \
+            -destination 'platform=macOS' \
+            -resultBundlePath build/ci/MactivateAppTests.xcresult \
+            test
+
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MactivateAppTests-${{ github.run_attempt }}
+          path: build/ci/MactivateAppTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
