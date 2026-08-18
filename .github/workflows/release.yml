@@ -122,11 +122,16 @@ jobs:
           if [[ -f "$notes" ]]; then
             gh release edit \
               "$RELEASE_TAG" \
+              --title "Mactivate $RELEASE_VERSION" \
               --notes-file "$notes" \
               --draft=false \
               --latest
           else
-            gh release edit "$RELEASE_TAG" --draft=false --latest
+            gh release edit \
+              "$RELEASE_TAG" \
+              --title "Mactivate $RELEASE_VERSION" \
+              --draft=false \
+              --latest
           fi
 
   homebrew:
