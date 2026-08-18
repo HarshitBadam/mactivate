@@ -4,7 +4,9 @@ Mactivate uses the accelerometer, gyroscope, and ambient-light sensor built into
 
 > Compatibility: macOS 13+ on Apple Silicon MacBooks. Validated on a MacBook Air M2 running macOS 26.2.
 >
-> See the [product walkthrough (Screenshots)](docs/walkthrough.md) for calibration, gesture mapping, the Notch Panel, and diagnostics.
+> See the [Product Screenshots & Walkthrough](docs/walkthrough.md) for a visual tour covering the Notch Panel, calibration, gesture mapping, and diagnostics.
+
+---
 
 ## Install
 
@@ -17,8 +19,6 @@ brew tap HarshitBadam/mactivate
 brew trust --cask HarshitBadam/mactivate/mactivate
 brew install --cask mactivate
 ```
-
-
 
 ### Disk image
 
@@ -37,6 +37,8 @@ open app/MactivateApp.xcodeproj
 ```
 
 Run the shared `MactivateApp` scheme. Package and test commands are documented in the area READMEs below.
+
+---
 
 ## Repository
 
