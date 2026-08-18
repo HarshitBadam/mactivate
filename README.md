@@ -3,6 +3,8 @@
 Mactivate uses the accelerometer, gyroscope, and ambient-light sensor built into Apple Silicon MacBooks to turn physical gestures into macOS controls. Double and triple taps on the left or right palm rest can trigger actions like launching an application, opening a web address, or running a Shortcut. Moving a hand near the camera can reveal the Notch Panel, a four-control surface attached to the notch.
 
 > Compatibility: macOS 13+ on Apple Silicon MacBooks. Validated on a MacBook Air M2 running macOS 26.2.
+>
+> See the [product walkthrough (Screenshots)](docs/walkthrough.md) for calibration, gesture mapping, the Notch Panel, and diagnostics.
 
 ## Install
 
@@ -15,6 +17,8 @@ brew tap HarshitBadam/mactivate
 brew trust --cask HarshitBadam/mactivate/mactivate
 brew install --cask mactivate
 ```
+
+
 
 ### Disk image
 
