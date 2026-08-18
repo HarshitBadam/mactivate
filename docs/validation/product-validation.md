@@ -28,6 +28,8 @@ The final discovery rule accepted between 72% and 100% of groups across the reco
 - Accelerometer impulse did not reliably classify individual taps as left or right after axis orientation and tap strength were controlled.
 - Notch Hover overlapped normal shadows and disappeared at the measured dim-light floor.
 
+
+
 ## Spatial tap study
 
 Training and validation captures each contained 40 gestures with 10 left doubles, 10 left triples, 10 right doubles, and 10 right triples. The MacBook was lifted and repositioned between captures. Feature selection and thresholds used only the training capture.

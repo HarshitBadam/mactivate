@@ -14,5 +14,5 @@ python3 tools/maintenance/check_repository.py
 python3 tools/analysis/analyze_imu.py <capture-directory>
 python3 tools/analysis/score_rule.py <capture-directory>
 tools/hardware/check_daemon_context.sh
-tools/release/build_dmg.sh 1.0.1
+tools/release/build_dmg.sh <version>
 ```
