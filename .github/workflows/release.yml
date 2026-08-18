@@ -196,7 +196,7 @@ jobs:
 
           brew style --cask "$validation_dir/Casks/mactivate.rb"
           brew audit --cask --online "$validation_tap/mactivate"
-          brew install --cask --no-quarantine "$validation_tap/mactivate"
+          brew install --cask "$validation_tap/mactivate"
           test -d /Applications/Mactivate.app
           brew uninstall --cask mactivate
           brew untap "$validation_tap"
