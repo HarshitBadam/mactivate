@@ -39,6 +39,17 @@ jobs:
           config-file: .github/release/release-please-config.json
           manifest-file: .github/release/release-please-manifest.json
 
+      - name: Standardize draft release title
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Mactivate $RELEASE_VERSION"
+
       - name: Dispatch release publication
         if: steps.release.outputs.release_created == 'true'
         env:
