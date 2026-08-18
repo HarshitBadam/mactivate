@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/HarshitBadam/mactivate/compare/v1.0.2...v1.0.3) (2026-08-18)
+
+
+### Bug Fixes
+
+* bundle the Mactivate icon with macOS releases ([8f78449](https://github.com/HarshitBadam/mactivate/commit/8f784499f2b23dd746efbcc7b8c2b64a84546894))
+
 ## [1.0.2](https://github.com/HarshitBadam/mactivate/compare/v1.0.1...v1.0.2) (2026-08-18)
 
 
