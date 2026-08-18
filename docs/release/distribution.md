@@ -55,10 +55,13 @@ If publication fails while the GitHub Release is still a draft, rerun it from th
 gh workflow run release.yml --ref v<version> -f version=<version>
 ```
 
-If only the Homebrew job fails after publication, rerun the failed job from the original workflow run. This preserves the published assets and repeats only downstream validation and delivery:
+If only the Homebrew job fails after publication, run the current workflow in recovery mode. This preserves the published assets and repeats only downstream validation and delivery:
 
 ```bash
-gh run rerun <run-id> --failed
+gh workflow run release.yml \
+  --ref main \
+  -f version=<version> \
+  -f homebrew_only=true
 ```
 
 ## Create the Homebrew tap

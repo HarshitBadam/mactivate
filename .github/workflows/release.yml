@@ -7,6 +7,11 @@ on:
         description: "Semantic version from the immutable release tag"
         required: true
         type: string
+      homebrew_only:
+        description: "Repair Homebrew from an existing published release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -18,6 +23,7 @@ concurrency:
 jobs:
   publish:
     name: Publish release
+    if: ${{ !inputs.homebrew_only }}
     runs-on: macos-26
     timeout-minutes: 30
 
@@ -126,6 +132,7 @@ jobs:
   homebrew:
     name: Publish Homebrew cask
     needs: publish
+    if: ${{ always() && (inputs.homebrew_only || needs.publish.result == 'success') }}
     runs-on: macos-26
     timeout-minutes: 15
 
@@ -181,10 +188,18 @@ jobs:
             exit 1
           fi
 
-          brew style --cask "$cask"
-          brew install --cask --no-quarantine "$cask"
+          validation_tap="mactivate/validation"
+          brew tap-new "$validation_tap"
+          validation_dir="$(brew --repository "$validation_tap")"
+          mkdir -p "$validation_dir/Casks"
+          cp "$cask" "$validation_dir/Casks/mactivate.rb"
+
+          brew style --cask "$validation_dir/Casks/mactivate.rb"
+          brew audit --cask --online "$validation_tap/mactivate"
+          brew install --cask --no-quarantine "$validation_tap/mactivate"
           test -d /Applications/Mactivate.app
           brew uninstall --cask mactivate
+          brew untap "$validation_tap"
 
       - name: Update Homebrew tap
         env:
@@ -223,7 +238,6 @@ jobs:
           fi
 
           cp "$RUNNER_TEMP/mactivate-release/mactivate.rb" "$tap_dir/Casks/mactivate.rb"
-          brew audit --cask --online HarshitBadam/mactivate/mactivate
           git -C "$tap_dir" config user.name "mactivate-release[bot]"
           git -C "$tap_dir" config user.email "mactivate-release[bot]@users.noreply.github.com"
           git -C "$tap_dir" add Casks/mactivate.rb
