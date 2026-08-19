@@ -3,10 +3,41 @@
 Mactivate uses the accelerometer, gyroscope, and ambient-light sensor built into Apple Silicon MacBooks to turn physical gestures into macOS controls. Double and triple taps on the left or right palm rest can trigger actions like launching an application, opening a web address, or running a Shortcut. Moving a hand near the camera can reveal the Notch Panel, a four-control surface attached to the notch.
 
 > Compatibility: macOS 13+ on Apple Silicon MacBooks. Validated on a MacBook Air M2 running macOS 26.2.
->
-> See the [Product Screenshots & Walkthrough](docs/walkthrough.md) for a visual tour covering the Notch Panel, calibration, gesture mapping, and diagnostics.
 
----
+<details open>
+<summary><strong>Product walkthrough</strong></summary>
+
+### Notch Panel
+
+Hover your hand near the notch area to reveal a passive hint, then click it to open the Notch Panel. You can also click the Mactivate icon in the menu bar to open the panel directly.
+
+![Notch Panel](docs/assets/walkthrough/notch-panel.png)
+
+### Notch Hover
+
+Notch Hover is on by default and responds to ambient-light changes. Its status and toggle are available under **General**, and it never runs an action directly.
+
+![Notch Hover settings](docs/assets/walkthrough/notch-hover.png)
+
+### Calibration
+
+Open **Actions → Palm tap setup**. Step 1 records comfortable and firm single taps on each palm rest and requires **Save Step 1**. Step 2 records guided left and right double and triple taps, then saves automatically.
+
+![Palm tap calibration](docs/assets/walkthrough/calibration.png)
+
+### Tap and gesture mapping
+
+Create application, web-link, or Shortcut actions, then assign them to left double, left triple, right double, and right triple taps. The same Actions pane also assigns actions to the four Notch Panel slots.
+
+![Tap and gesture assignments](docs/assets/walkthrough/tap-and-gesture-mapping.png)
+
+### Diagnostics
+
+Open **Diagnostics** to review the latest tap decision, including peak strength, detected impact count, and rejection detail when available. The runtime report below it can be copied for troubleshooting.
+
+![Tap diagnostics](docs/assets/walkthrough/diagnostics.png)
+
+</details>
 
 ## Install
 
@@ -19,6 +50,8 @@ brew tap HarshitBadam/mactivate
 brew trust --cask HarshitBadam/mactivate/mactivate
 brew install --cask mactivate
 ```
+
+
 
 ### Disk image
 
@@ -39,6 +72,8 @@ open app/MactivateApp.xcodeproj
 Run the shared `MactivateApp` scheme. Package and test commands are documented in the area READMEs below.
 
 ---
+
+
 
 ## Repository
 
