@@ -5,7 +5,7 @@ Mactivate uses the accelerometer, gyroscope, and ambient-light sensor built into
 > Compatibility: macOS 13+ on Apple Silicon MacBooks. Validated on a MacBook Air M2 running macOS 26.2.
 
 <details open>
-<summary><strong>Product walkthrough</strong></summary>
+<summary><h2>Product walkthrough <sub>click to toggle</sub></h2></summary>
 
 ### Notch Panel
 
